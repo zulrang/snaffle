@@ -1,12 +1,16 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   acquireWriterLock,
   attachObserver,
+  OWNERSHIP_LOCK_DIR,
+  OWNERSHIP_LOCK_FILE,
+  readLockFileState,
   readWriterClaim,
   reclaimStaleLock,
+  recordsMatch,
 } from "./ownership-lock";
 
 const must = <T>(result: { ok: boolean; value?: T; error?: unknown }): T => {
@@ -119,5 +123,68 @@ describe("ownership lock — unit cases", () => {
 
     await lock.release();
     expect(await readWriterClaim(workspaceRoot)).toBeNull();
+  });
+
+  test("readWriterClaim does not delete a corrupt lock file", async () => {
+    workspaceRoot = mkdtempSync(join(tmpdir(), "orchestrator-w2-"));
+    const lockPath = join(workspaceRoot, OWNERSHIP_LOCK_DIR, OWNERSHIP_LOCK_FILE);
+    const { mkdirSync } = await import("node:fs");
+    mkdirSync(join(workspaceRoot, OWNERSHIP_LOCK_DIR), { recursive: true });
+    writeFileSync(lockPath, "", "utf8");
+
+    const claim = await readWriterClaim(workspaceRoot);
+    expect(claim?.corrupt).toBe(true);
+    expect((await readLockFileState(workspaceRoot)).kind).toBe("corrupt");
+
+    const blocked = await acquireWriterLock({ workspaceRoot, ownerId: "writer" });
+    expect(blocked.ok).toBe(false);
+    if (blocked.ok) throw new Error("expected lock_contention");
+    expect(blocked.error.kind).toBe("lock_contention");
+  });
+
+  test("release does not delete a lock re-owned by another writer", async () => {
+    workspaceRoot = mkdtempSync(join(tmpdir(), "orchestrator-w2-"));
+
+    const first = must(await acquireWriterLock({ workspaceRoot, ownerId: "writer-a" }));
+    const firstRecord = { ...first.record };
+    await first.release();
+
+    const second = must(await acquireWriterLock({ workspaceRoot, ownerId: "writer-b" }));
+    // Simulate a stale first handle releasing after second acquired.
+    await first.release();
+
+    const claim = await readWriterClaim(workspaceRoot);
+    expect(claim?.ownerId).toBe("writer-b");
+    expect(recordsMatch(claim ?? firstRecord, second.record)).toBe(true);
+    await second.release();
+  });
+
+  test("two concurrent acquirers: exactly one succeeds", async () => {
+    workspaceRoot = mkdtempSync(join(tmpdir(), "orchestrator-w2-"));
+    const fixture = join(import.meta.dir, "fixtures/lock-concurrent-acquirer.ts");
+
+    const childA = Bun.spawn(["bun", fixture, workspaceRoot, "child-a"], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const childB = Bun.spawn(["bun", fixture, workspaceRoot, "child-b"], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+
+    const readLine = async (stdout: ReadableStream<Uint8Array>): Promise<string> => {
+      const reader = stdout.getReader();
+      const chunk = await reader.read();
+      return new TextDecoder().decode(chunk.value).trim();
+    };
+
+    const [outA, outB] = await Promise.all([
+      readLine(childA.stdout as ReadableStream<Uint8Array>),
+      readLine(childB.stdout as ReadableStream<Uint8Array>),
+    ]);
+    await Promise.all([childA.exited, childB.exited]);
+
+    const outcomes = [outA, outB].sort();
+    expect(outcomes).toEqual(["fail", "held"]);
   });
 });

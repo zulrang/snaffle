@@ -1,5 +1,5 @@
-import { unlinkSync } from "node:fs";
-import { mkdir, open, readFile, unlink } from "node:fs/promises";
+import { closeSync, openSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdir, readFile, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { err, ok, type Result } from "../domain/shared";
 
@@ -30,6 +30,8 @@ export interface WriterLock {
 
 export interface ActiveWriterClaim extends LockRecord {
   readonly alive: boolean;
+  /** True when the lock file exists but is not a valid LockRecord (blocks acquisition). */
+  readonly corrupt?: boolean;
 }
 
 export interface ObserverAttachment {
@@ -82,39 +84,54 @@ const parseLockRecord = (raw: string): LockRecord | undefined => {
   }
 };
 
-export const readWriterClaim = async (workspaceRoot: string): Promise<ActiveWriterClaim | null> => {
+export const recordsMatch = (a: LockRecord, b: LockRecord): boolean =>
+  a.ownerId === b.ownerId && a.pid === b.pid && a.startedAt === b.startedAt;
+
+/** Non-destructive lock read: never unlinks on parse failure (D23 TOCTOU fix). */
+export const readLockFileState = async (
+  workspaceRoot: string,
+): Promise<
+  | { readonly kind: "missing" }
+  | { readonly kind: "corrupt" }
+  | { readonly kind: "claim"; readonly record: LockRecord }
+> => {
   const lockPath = lockPathFor(workspaceRoot);
   let raw: string;
   try {
     raw = await readFile(lockPath, "utf8");
   } catch {
-    return null;
+    return { kind: "missing" };
   }
 
   const record = parseLockRecord(raw);
-  if (!record) {
-    await unlink(lockPath).catch(() => undefined);
-    return null;
-  }
+  if (!record) return { kind: "corrupt" };
+  return { kind: "claim", record };
+};
 
-  return { ...record, alive: isProcessAlive(record.pid) };
+export const readWriterClaim = async (workspaceRoot: string): Promise<ActiveWriterClaim | null> => {
+  const state = await readLockFileState(workspaceRoot);
+  if (state.kind === "missing") return null;
+  if (state.kind === "corrupt") {
+    return { ownerId: "", pid: -1, startedAt: 0, alive: true, corrupt: true };
+  }
+  return { ...state.record, alive: isProcessAlive(state.record.pid) };
 };
 
 const isNodeError = (error: unknown): error is NodeJS.ErrnoException =>
   typeof error === "object" && error !== null && "code" in error;
 
-const tryCreateLockFile = async (lockPath: string, record: LockRecord): Promise<boolean> => {
+/** Atomic create+write in one synchronous stretch so the file is never empty on disk. */
+const tryCreateLockFile = (lockPath: string, record: LockRecord): boolean => {
+  let fd: number | undefined;
   try {
-    const handle = await open(lockPath, "wx");
-    try {
-      await handle.writeFile(JSON.stringify(record));
-    } finally {
-      await handle.close();
-    }
+    fd = openSync(lockPath, "wx");
+    writeFileSync(fd, JSON.stringify(record), "utf8");
     return true;
   } catch (error) {
     if (isNodeError(error) && error.code === "EEXIST") return false;
     throw error;
+  } finally {
+    if (fd !== undefined) closeSync(fd);
   }
 };
 
@@ -135,8 +152,6 @@ class WriterLockHandle implements WriterLock {
       this.releaseSync();
     };
     process.on("exit", this.releaseOnExit);
-    process.on("SIGINT", this.releaseOnExit);
-    process.on("SIGTERM", this.releaseOnExit);
   }
 
   async release(): Promise<void> {
@@ -147,12 +162,14 @@ class WriterLockHandle implements WriterLock {
     if (this.released) return;
     this.released = true;
     process.off("exit", this.releaseOnExit);
-    process.off("SIGINT", this.releaseOnExit);
-    process.off("SIGTERM", this.releaseOnExit);
     try {
-      unlinkSync(this.lockPath);
+      const raw = readFileSync(this.lockPath, "utf8");
+      const onDisk = parseLockRecord(raw);
+      if (onDisk && recordsMatch(onDisk, this.record)) {
+        unlinkSync(this.lockPath);
+      }
     } catch {
-      // ignore missing file
+      // ignore missing or unreadable lock file
     }
   }
 }
@@ -170,16 +187,18 @@ export const acquireWriterLock = async (
   const lockPath = lockPathFor(workspaceRoot);
   await mkdir(lockDir, { recursive: true });
 
-  const existing = await readWriterClaim(workspaceRoot);
-  if (existing?.alive) {
+  const existing = await readLockFileState(workspaceRoot);
+  if (existing.kind === "corrupt") {
+    return err({ kind: "lock_contention", detail: "corrupt ownership lock file" });
+  }
+  if (existing.kind === "claim" && isProcessAlive(existing.record.pid)) {
     return err({
       kind: "workspace_already_owned",
-      ownerId: existing.ownerId,
-      pid: existing.pid,
+      ownerId: existing.record.ownerId,
+      pid: existing.record.pid,
     });
   }
-
-  if (existing && !existing.alive) {
+  if (existing.kind === "claim" && !isProcessAlive(existing.record.pid)) {
     await unlink(lockPath).catch(() => undefined);
   }
 
@@ -189,17 +208,22 @@ export const acquireWriterLock = async (
     startedAt: Date.now(),
   };
 
-  if (!(await tryCreateLockFile(lockPath, record))) {
-    const contender = await readWriterClaim(workspaceRoot);
-    if (contender?.alive) {
+  if (!tryCreateLockFile(lockPath, record)) {
+    const contender = await readLockFileState(workspaceRoot);
+    if (contender.kind === "corrupt") {
+      return err({ kind: "lock_contention", detail: "corrupt ownership lock file" });
+    }
+    if (contender.kind === "claim" && isProcessAlive(contender.record.pid)) {
       return err({
         kind: "workspace_already_owned",
-        ownerId: contender.ownerId,
-        pid: contender.pid,
+        ownerId: contender.record.ownerId,
+        pid: contender.record.pid,
       });
     }
-    await unlink(lockPath).catch(() => undefined);
-    if (!(await tryCreateLockFile(lockPath, record))) {
+    if (contender.kind === "claim") {
+      await unlink(lockPath).catch(() => undefined);
+    }
+    if (!tryCreateLockFile(lockPath, record)) {
       return err({ kind: "lock_contention", detail: "Failed to acquire ownership lock" });
     }
   }
@@ -227,9 +251,9 @@ export const attachObserver = async (
 /** Remove a stale lock file when the recorded pid is no longer alive. */
 export const reclaimStaleLock = async (workspaceRoot: string): Promise<boolean> => {
   const lockPath = lockPathFor(workspaceRoot);
-  const claim = await readWriterClaim(workspaceRoot);
-  if (!claim) return false;
-  if (claim.alive) return false;
+  const state = await readLockFileState(workspaceRoot);
+  if (state.kind !== "claim") return false;
+  if (isProcessAlive(state.record.pid)) return false;
   await unlink(lockPath).catch(() => undefined);
   return true;
 };
