@@ -33,3 +33,24 @@ export const roleDoctrine = (agentKind: AgentKind): string => ROLE_DOCTRINE[agen
  */
 export const assembleSystemPrompt = (agentKind: AgentKind, skills: readonly Skill[]): string =>
   [ROLE_DOCTRINE[agentKind], ...skills.map((skill) => skill.body)].join("\n\n");
+
+/**
+ * Stable prefix + variable tail, with the cache breakpoint at the boundary (D26).
+ * `prefix` is a pure function of `(agentKind, skill bodies)`; the per-invocation
+ * task is the `tail`. No lineage ids, scope, nonces, or timestamps belong in
+ * either field — those travel out-of-band (D6); the provider-neutral cache hint
+ * (carried via stream options, not the prompt) is built by the invoker.
+ */
+export interface AssembledContext {
+  readonly prefix: string;
+  readonly tail: string;
+}
+
+export const assembleAgentContext = (
+  agentKind: AgentKind,
+  skills: readonly Skill[],
+  task: string,
+): AssembledContext => ({
+  prefix: assembleSystemPrompt(agentKind, skills),
+  tail: task,
+});

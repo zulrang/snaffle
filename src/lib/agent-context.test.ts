@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { assembleSystemPrompt, roleDoctrine } from "./agent-context";
+import { assembleAgentContext, assembleSystemPrompt, roleDoctrine } from "./agent-context";
 import type { Skill } from "./skills";
 
 /**
@@ -43,5 +43,15 @@ describe("P4/S3 — stable agent prefix (D26)", () => {
     expect(assembleSystemPrompt("implementer", [skill])).not.toBe(
       assembleSystemPrompt("test_author", [skill]),
     );
+  });
+
+  test("W3: assembleAgentContext keeps a stable prefix while the task varies in the tail", () => {
+    const a = assembleAgentContext("implementer", [skill], "task one");
+    const b = assembleAgentContext("implementer", [skill], "task two");
+    // The cache breakpoint is the prefix/tail boundary: prefix stable, tail varies.
+    expect(a.prefix).toBe(b.prefix);
+    expect(a.tail).toBe("task one");
+    expect(b.tail).toBe("task two");
+    expect(a.prefix).toContain(skill.body);
   });
 });

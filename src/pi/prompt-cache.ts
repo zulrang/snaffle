@@ -21,6 +21,16 @@ export interface PromptCacheHint {
 
 export const DEFAULT_CACHE_RETENTION: CacheRetention = "short";
 
+/**
+ * Provider-neutral cache hint for a lineage (D26). `sessionId` is the lineage's
+ * stable affinity key — it travels out-of-band via stream options, never in the
+ * prompt prefix, so prefix byte-stability and cache affinity are one choice.
+ */
+export const lineageCacheHint = (
+  sessionId: string,
+  cacheRetention: CacheRetention = DEFAULT_CACHE_RETENTION,
+): PromptCacheHint => ({ sessionId, cacheRetention });
+
 /** Merge cache hints into pi-ai stream options (used by stub agent and future spine invocations). */
 export const applyPromptCacheHint = <
   T extends { sessionId?: string; cacheRetention?: CacheRetention },

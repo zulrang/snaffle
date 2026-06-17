@@ -4,6 +4,7 @@ import { InvocationId } from "../domain/ids";
 import { makeWriteScope, parseRepoPath } from "../domain/scope";
 import { AGENT_DEFINITIONS } from "../lib/agents";
 import { defaultOrchestratorConfig } from "../lib/orchestrator-config";
+import { lineageCacheHint } from "../pi/prompt-cache";
 import { invokeAgent } from "./invoke-agent";
 
 const must = <T>(result: { ok: boolean; value?: T; error?: unknown }): T => {
@@ -74,5 +75,23 @@ describe("W2 — agent definitions (D3/D6/D18)", () => {
     expect(outcome.agentResult.agentKind).toBe("test_author");
     expect(outcome.agentResult.outcome).toBe("refused");
     expect(outcome.scopeEvents.some((event) => event.kind === "write_denied")).toBe(true);
+  });
+
+  test("W3: a provider-neutral cache hint reaches the invocation out-of-band", async () => {
+    const scope = must(makeWriteScope([must(parseRepoPath("src/lib"))]));
+    const outcome = must(
+      await invokeAgent({
+        definition: AGENT_DEFINITIONS.implementer,
+        invocationId: must(InvocationId("inv-w3-cache")),
+        prompt: "Apply a trivial in-scope edit.",
+        writes: [{ path: "src/lib/w3-marker.ts", content: "// w3\n" }],
+        scope,
+        config,
+        repoRoot,
+        cacheHint: lineageCacheHint("lineage-w3"),
+      }),
+    );
+
+    expect(outcome.metadata.promptCache?.sessionId).toBe("lineage-w3");
   });
 });

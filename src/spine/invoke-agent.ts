@@ -2,7 +2,7 @@ import type { AgentResult } from "../domain/agent";
 import type { InvocationId } from "../domain/ids";
 import type { WriteScope } from "../domain/scope";
 import { err, ok, type Result } from "../domain/shared";
-import { assembleSystemPrompt } from "../lib/agent-context";
+import { assembleAgentContext } from "../lib/agent-context";
 import type { AgentDefinition } from "../lib/agents";
 import type { OracleFreezeRecord } from "../lib/oracle-freeze";
 import type { ModelRef, OrchestratorConfig } from "../lib/orchestrator-config";
@@ -13,6 +13,7 @@ import {
   type StubInvocationError,
   type StubInvocationMetadata,
 } from "../pi/invoke-stub-agent";
+import type { PromptCacheHint } from "../pi/prompt-cache";
 import type { ScopedWriteAttempt, ScopeEvent } from "./scoped-invocation";
 
 /**
@@ -35,6 +36,8 @@ export interface AgentInvocationInput {
   readonly workspaceRoot?: string;
   /** Frozen oracle handed read-only to the implementer (D7). */
   readonly oracleFreeze?: OracleFreezeRecord;
+  /** Provider-neutral prompt-cache hint (D26); carried out-of-band via stream options. */
+  readonly cacheHint?: PromptCacheHint;
 }
 
 export interface AgentInvocationOutcome {
@@ -56,18 +59,23 @@ export const invokeAgent = async (
   const skills = loadSkills(input.definition.skills, input.repoRoot);
   if (!skills.ok) return err({ kind: "skill_load", detail: skills.error });
 
-  const systemPrompt = assembleSystemPrompt(input.definition.kind, skills.value);
+  const { prefix: systemPrompt, tail } = assembleAgentContext(
+    input.definition.kind,
+    skills.value,
+    input.prompt,
+  );
   const modelRef = resolveModelTier(input.definition.tier, input.config);
 
   const scopeEvents: ScopeEvent[] = [];
   const result = await invokeStubAgentSequence(
-    { invocationId: input.invocationId, prompt: input.prompt, writes: input.writes },
+    { invocationId: input.invocationId, prompt: tail, writes: input.writes },
     {
       scope: input.scope,
       systemPrompt,
       modelRef,
       ...(input.workspaceRoot === undefined ? {} : { workspaceRoot: input.workspaceRoot }),
       ...(input.oracleFreeze === undefined ? {} : { oracleFreeze: input.oracleFreeze }),
+      ...(input.cacheHint === undefined ? {} : { promptCache: input.cacheHint }),
       onScopeDenial: (denial, toolName) => {
         scopeEvents.push({
           kind: "write_denied",
