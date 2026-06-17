@@ -43,6 +43,14 @@ export type PreGateBlockedError = {
   readonly report: GateReport;
 };
 
+/** ponytail: snapshot env once per process so PRE/POST gate runs see identical env. */
+let cachedGateEnv: Record<string, string | undefined> | undefined;
+
+const gateRunEnv = (): Record<string, string | undefined> => {
+  cachedGateEnv ??= { ...process.env };
+  return cachedGateEnv;
+};
+
 export const runGateCommand = async (
   worktreeRoot: string,
   command: readonly string[],
@@ -51,7 +59,7 @@ export const runGateCommand = async (
     cwd: worktreeRoot,
     stdout: "pipe",
     stderr: "pipe",
-    env: process.env,
+    env: gateRunEnv(),
   });
 
   const [stdout, stderr, exitCode] = await Promise.all([

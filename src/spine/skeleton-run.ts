@@ -15,6 +15,7 @@ import {
   PROVENANCE_DB_FILE,
 } from "../lib/provenance-store";
 import { skeletonGateConfig, writePassingGateFixture } from "../lib/skeleton-gate-fixture";
+import { applyScopeRefusalHold } from "../lib/transition-derivation";
 import { validateAgentResult } from "../lib/validate-agent-result";
 import { applyWritesToWorktree } from "../lib/worktree-writes";
 import { reviewLineageTransition } from "./control-plane-transition";
@@ -246,9 +247,17 @@ export const runSkeletonLineage = async (
         return err({ kind: "unexpected_variant_outcome", detail: "expected scope denial" });
       }
 
+      const scopeHold = applyScopeRefusalHold(runningState);
+      if (scopeHold.kind !== "no_transition") {
+        return err({ kind: "transition", detail: "expected scope refusal hold" });
+      }
+      if (scopeHold.outcome.kind !== "hold" || scopeHold.outcome.reason !== "agent_refused") {
+        return err({ kind: "transition", detail: "expected agent_refused hold outcome" });
+      }
+
       return ok({
         kind: "scope_blocked",
-        finalState: runningState,
+        finalState: scopeHold.state,
         scopeEvents: invoked.value.scopeEvents,
         generationId: input.ids.generationId,
       });
@@ -341,8 +350,18 @@ export const runSkeletonLineage = async (
       detail: `unhandled variant ${input.variant}`,
     });
   } finally {
-    store.close();
-    if (prepared) await prepared.dispose();
+    try {
+      store.close();
+    } catch {
+      // ignore close errors
+    }
+    if (prepared) {
+      try {
+        await prepared.dispose();
+      } catch {
+        // ponytail: still release lock when worktree teardown fails
+      }
+    }
     await releaseLock(lock);
   }
 };

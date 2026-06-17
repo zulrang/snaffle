@@ -98,6 +98,13 @@ export const requirePostGateEvidence = (
   return ok(evidence);
 };
 
+/** Hold when scope enforcement refuses before apply (W3 scope_blocked variant). */
+export const applyScopeRefusalHold = (currentState: LineageState): ApplyTransitionResult => ({
+  kind: "no_transition",
+  outcome: { kind: "hold", reason: "agent_refused" },
+  state: currentState,
+});
+
 /** Apply a control-plane-derived transition; holds leave state unchanged (W6). */
 export const applyControlPlaneTransition = (input: ApplyTransitionInput): ApplyTransitionResult => {
   const validated = requirePostGateEvidence(input.evidence);

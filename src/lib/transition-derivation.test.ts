@@ -7,6 +7,7 @@ import { makeWriteScope, parseRepoPath } from "../domain/scope";
 import { parseTimestamp } from "../domain/shared";
 import {
   applyControlPlaneTransition,
+  applyScopeRefusalHold,
   deriveControlPlaneOutcome,
   lineageStateEquals,
   requirePostGateEvidence,
@@ -94,6 +95,14 @@ describe("transition derivation — unit cases", () => {
         applyInput(running, evidence(agentResult("succeeded"), gateReport("pre", false))),
       ),
     ).toThrow(/POST gate evidence/);
+  });
+
+  test("applyScopeRefusalHold records agent_refused without POST gate", () => {
+    const hold = applyScopeRefusalHold(running);
+    expect(hold.kind).toBe("no_transition");
+    if (hold.kind !== "no_transition") throw new Error("expected hold");
+    expect(hold.outcome).toEqual({ kind: "hold", reason: "agent_refused" });
+    expect(hold.state).toEqual(running);
   });
 });
 
