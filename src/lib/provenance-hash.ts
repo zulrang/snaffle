@@ -34,6 +34,8 @@ export interface StubGenerationContext {
   readonly writes: readonly StubGenerationWrite[];
   readonly allowedPaths: readonly string[];
   readonly agentResult?: StubGenerationAgentResult;
+  /** Frozen acceptance-oracle hash the generation was graded against (D7, W4). */
+  readonly oracleHash?: string;
 }
 
 /** Phase 1 skeleton execution plan pin — superseded by W6 frozen plan when supplied. */
@@ -69,6 +71,7 @@ export const stubGenerationContextFromTask = (input: {
   readonly writes: readonly { readonly path: string; readonly content: string }[];
   readonly scope?: WriteScope;
   readonly agentResult?: StubGenerationAgentResult;
+  readonly oracleHash?: ContentHash;
 }): StubGenerationContext => ({
   writes: [...input.writes]
     .map((write) => ({ path: write.path, content: write.content }))
@@ -78,6 +81,7 @@ export const stubGenerationContextFromTask = (input: {
       ? []
       : [...input.scope.allowedPaths].map(String).sort((a, b) => a.localeCompare(b)),
   ...(input.agentResult === undefined ? {} : { agentResult: input.agentResult }),
+  ...(input.oracleHash === undefined ? {} : { oracleHash: String(input.oracleHash) }),
 });
 
 export const computeContextHash = (context: StubGenerationContext): ContentHash =>
