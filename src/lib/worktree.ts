@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { err, ok, type Result } from "../domain/shared";
+import { spawnCommand } from "./spawn";
 
 /**
  * Isolated git worktrees for gate execution (D20, W5).
@@ -19,14 +20,9 @@ export type WorktreeError =
   | { readonly kind: "node_modules_link_failed"; readonly detail: string };
 
 const runGit = async (repoRoot: string, args: readonly string[]): Promise<Result<void, string>> => {
-  const proc = Bun.spawn(["git", ...args], {
-    cwd: repoRoot,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const [stderr, exitCode] = await Promise.all([new Response(proc.stderr).text(), proc.exited]);
-  if (exitCode !== 0) {
-    return err(stderr.trim() || `git ${args.join(" ")} failed with ${exitCode}`);
+  const result = await spawnCommand(["git", ...args], { cwd: repoRoot });
+  if (result.exitCode !== 0) {
+    return err(result.stderr.trim() || `git ${args.join(" ")} failed with ${result.exitCode}`);
   }
   return ok(undefined);
 };

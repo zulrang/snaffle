@@ -3,7 +3,7 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { type GateReport, gateOutcome, gatePassed } from "../domain/gate";
 import { GateRunId, LineageId } from "../domain/ids";
-import { PHASE1_GATE_CHECK_KIND } from "../lib/gate-config";
+import { defaultPhase1GateConfig, PHASE1_GATE_CHECK_KIND } from "../lib/gate-config";
 import { GATE_DETERMINISTIC_ENTRY, type GateRunTrace } from "../lib/gate-runner";
 import {
   prepareWorktreeGate,
@@ -52,9 +52,9 @@ const worktreeGateConfig = (worktreeRoot: string) => {
   writeGateFixture(worktreeRoot, passingFixtureSource());
 
   return {
-    command: ["bun", "test", gateFixtureRel],
-    checkKind: PHASE1_GATE_CHECK_KIND,
-  } as const;
+    ...defaultPhase1GateConfig(),
+    stages: [{ kind: PHASE1_GATE_CHECK_KIND, command: ["bun", "test", gateFixtureRel] }],
+  };
 };
 
 /** Outcome fields stable across repeated runs (temp-0 gate: same tree → same verdict). */
@@ -164,9 +164,9 @@ describe("D8/D12 — PRE/POST gate identity in worktree", () => {
     try {
       writeGateFixture(prepared.worktreeRoot, failingFixtureSource());
       const config = {
-        command: ["bun", "test", gateFixtureRel],
-        checkKind: PHASE1_GATE_CHECK_KIND,
-      } as const;
+        ...defaultPhase1GateConfig(),
+        stages: [{ kind: PHASE1_GATE_CHECK_KIND, command: ["bun", "test", gateFixtureRel] }],
+      };
       const context = { worktreeRoot: prepared.worktreeRoot, config };
 
       const blocked = await runPreGateInWorktree(context, ids);

@@ -74,9 +74,21 @@ export const gatePassed = (report: GateReport): boolean => gateOutcome(report) =
 export const failedChecks = (report: GateReport): readonly GateCheckResult[] =>
   report.checks.filter((check) => check.status === "failed");
 
+/** Repo gate mode for PRE precondition (D16). */
+export type RepoGateMode = "strict" | "wrap" | "greenfield";
+
 /**
- * The PRE-gate precondition (W5): the gate refuses to start work unless the tree
- * is green. (Wrap-mode characterization relaxes this to "no regression" — D16,
- * Phase 2.)
+ * The PRE-gate precondition (W5/D16): strict/greenfield require a green tree;
+ * wrap mode allows an already-red tree when failures match the characterization baseline.
  */
-export const canStartFromPre = (pre: GateReport): boolean => pre.phase === "pre" && gatePassed(pre);
+export const canStartFromPre = (
+  pre: GateReport,
+  mode: RepoGateMode = "strict",
+  baselineFailedKeys?: ReadonlySet<string>,
+): boolean => {
+  if (pre.phase !== "pre") return false;
+  if (mode === "strict" || mode === "greenfield") return gatePassed(pre);
+  if (baselineFailedKeys === undefined) return true;
+  const currentFailed = failedChecks(pre).map((check) => `${check.kind}:${check.detail ?? ""}`);
+  return currentFailed.every((key) => baselineFailedKeys.has(key));
+};

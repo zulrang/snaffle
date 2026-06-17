@@ -1,6 +1,3 @@
-import { Database } from "bun:sqlite";
-import { mkdirSync } from "node:fs";
-import { dirname } from "node:path";
 import { GenerationId, InvocationId, LineageId } from "../domain/ids";
 import type { GenerationRecord } from "../domain/provenance";
 import { makeGenerationRecord } from "../domain/provenance";
@@ -13,6 +10,7 @@ import {
   type Result,
 } from "../domain/shared";
 import { type StubGenerationContext, verifyGenerationInputs } from "./provenance-hash";
+import { openSqliteDatabase, type SqliteDatabase } from "./sqlite";
 
 /**
  * SQLite provenance store (D10, D18, W7).
@@ -302,8 +300,7 @@ const parseStoredGeneration = (row: GenerationRecordRow): StoredGeneration | und
 };
 
 export const openProvenanceStore = (dbPath: string): ProvenanceStore => {
-  mkdirSync(dirname(dbPath), { recursive: true });
-  const db = new Database(dbPath);
+  const db: SqliteDatabase = openSqliteDatabase(dbPath);
   db.exec(SCHEMA);
 
   const insert = (
@@ -311,31 +308,30 @@ export const openProvenanceStore = (dbPath: string): ProvenanceStore => {
     material: StoredGenerationMaterial,
   ): Result<void, ProvenanceStoreError> => {
     try {
-      db.run(
+      db.prepare(
         `INSERT INTO generation_records (
           generation_id, lineage_id, invocation_id, content_hash, recorded_at,
           model_provider, model_name, model_version,
           prompt_hash, context_hash, plan_hash, temperature, seed,
           tool_versions_json, prompt, context_payload_json
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          record.generationId,
-          record.lineageId,
-          record.invocationId,
-          record.contentHash,
-          record.recordedAt,
-          record.inputs.model.provider,
-          record.inputs.model.model,
-          record.inputs.model.version ?? null,
-          record.inputs.promptHash,
-          record.inputs.contextHash,
-          record.inputs.planHash,
-          record.inputs.temperature,
-          record.inputs.seed ?? null,
-          JSON.stringify(record.inputs.toolVersions),
-          material.prompt,
-          JSON.stringify(material.context),
-        ],
+      ).run(
+        record.generationId,
+        record.lineageId,
+        record.invocationId,
+        record.contentHash,
+        record.recordedAt,
+        record.inputs.model.provider,
+        record.inputs.model.model,
+        record.inputs.model.version ?? null,
+        record.inputs.promptHash,
+        record.inputs.contextHash,
+        record.inputs.planHash,
+        record.inputs.temperature,
+        record.inputs.seed ?? null,
+        JSON.stringify(record.inputs.toolVersions),
+        material.prompt,
+        JSON.stringify(material.context),
       );
       return ok(undefined);
     } catch (error) {
@@ -351,8 +347,8 @@ export const openProvenanceStore = (dbPath: string): ProvenanceStore => {
   };
 
   const queryOne = (sql: string, param: string): StoredGeneration | undefined => {
-    const row = db.query(sql).get(param) as GenerationRecordRow | null;
-    return row === null ? undefined : parseStoredGeneration(row);
+    const row = db.prepare(sql).get(param) as GenerationRecordRow | undefined;
+    return row === undefined ? undefined : parseStoredGeneration(row);
   };
 
   const getByGenerationId = (
@@ -394,7 +390,7 @@ export const openProvenanceStore = (dbPath: string): ProvenanceStore => {
     }
     try {
       const rows = db
-        .query(
+        .prepare(
           `SELECT generation_id, lineage_id, invocation_id, recorded_at
            FROM generation_records ORDER BY recorded_at DESC LIMIT ?`,
         )

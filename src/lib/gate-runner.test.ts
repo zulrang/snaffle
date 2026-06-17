@@ -43,8 +43,8 @@ describe("gate config", () => {
     writeMinimalWorktree(root, "exit 0");
 
     const loaded = must(loadGateConfig(root));
-    expect(loaded.command).toEqual(["bun", "run", "check"]);
-    expect(loaded.checkKind).toBe("full_tests");
+    expect(loaded.stages[0]?.command).toEqual(["bun", "run", "check"]);
+    expect(loaded.stages[0]?.kind).toBe("full_tests");
 
     rmSync(root, { recursive: true, force: true });
   });
@@ -74,7 +74,7 @@ describe("W5 — deterministic gate PRE and POST (D8)", () => {
     expect(gatePassed(pre)).toBe(false);
     expect(canStartFromPre(pre)).toBe(false);
 
-    const allowed = requireGreenPreGate(pre);
+    const allowed = requireGreenPreGate(pre, config, worktreeRoot);
     expect(allowed.ok).toBe(false);
     if (allowed.ok) throw new Error("expected PRE refusal");
     expect(allowed.error.kind).toBe("pre_gate_red");
@@ -113,21 +113,23 @@ describe("W5 — deterministic gate PRE and POST (D8)", () => {
     expect(gateOutcome(pre)).toBe("green");
     expect(gateOutcome(post)).toBe("green");
     expect(invocations).toEqual([
-      { phase: "pre", command: config.command },
-      { phase: "post", command: config.command },
+      { phase: "pre", command: ["bun", "run", "check"] },
+      { phase: "post", command: ["bun", "run", "check"] },
     ]);
 
     expect(traces).toEqual([
       {
         entry: GATE_DETERMINISTIC_ENTRY,
         phase: "pre",
-        command: config.command,
+        kind: "full_tests",
+        command: ["bun", "run", "check"],
         worktreeRoot,
       },
       {
         entry: GATE_DETERMINISTIC_ENTRY,
         phase: "post",
-        command: config.command,
+        kind: "full_tests",
+        command: ["bun", "run", "check"],
         worktreeRoot,
       },
     ]);
@@ -137,7 +139,7 @@ describe("W5 — deterministic gate PRE and POST (D8)", () => {
       runnerOptions,
     );
     expect(direct.checks[0]?.status).toBe("passed");
-    expect(invocations.at(-1)?.command).toEqual(config.command);
+    expect(invocations.at(-1)?.command).toEqual(config.stages[0]?.command);
     expect(traces.at(-1)?.entry).toBe(GATE_DETERMINISTIC_ENTRY);
   });
 

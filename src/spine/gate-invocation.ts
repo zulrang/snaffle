@@ -70,7 +70,7 @@ export const runPreGateInWorktree = async (
     },
     options,
   );
-  return requireGreenPreGate(report);
+  return requireGreenPreGate(report, context.config, context.worktreeRoot);
 };
 
 /** Run POST-gate through the identical shared gate path. */

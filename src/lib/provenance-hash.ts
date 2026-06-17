@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { GenerationInputs, ModelRef } from "../domain/provenance";
 import type { WriteScope } from "../domain/scope";
 import {
@@ -46,11 +47,7 @@ const mustHash = (raw: string): ContentHash => {
 
 export const hashUtf8 = (value: string): ContentHash => mustHash(createSha256Hex(value));
 
-const createSha256Hex = (value: string): string => {
-  const hasher = new Bun.CryptoHasher("sha256");
-  hasher.update(value);
-  return hasher.digest("hex");
-};
+const createSha256Hex = (value: string): string => createHash("sha256").update(value).digest("hex");
 
 const canonicalJson = (value: unknown): string => {
   if (value === null || typeof value !== "object") {

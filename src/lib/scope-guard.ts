@@ -4,6 +4,11 @@ import type { BeforeToolCallContext, BeforeToolCallResult } from "@earendil-work
 import type { ToolCallEvent, ToolCallEventResult } from "@earendil-works/pi-coding-agent";
 import { parseRepoPath, pathWithinScope, type RepoPath, type WriteScope } from "../domain/scope";
 import { err, ok, type Result } from "../domain/shared";
+import {
+  checkOracleMutationAllowed,
+  type OracleDenial,
+  type OracleFreezeRecord,
+} from "./oracle-freeze";
 
 /**
  * Deterministic write-scope enforcement (D6, D12).
@@ -137,6 +142,26 @@ export const checkMutationAllowed = (
   return undefined;
 };
 
+export type GrantDenial = ScopeDenial | OracleDenial;
+
+/** Single grant decision — scope + optional oracle freeze (D6/D7). */
+export const evaluateToolCallUnderGrant = (
+  scope: WriteScope,
+  toolName: string,
+  args: unknown,
+  workspaceRoot?: string,
+  oracleFreeze?: OracleFreezeRecord,
+): GrantDenial | undefined => {
+  if (oracleFreeze !== undefined && isMutationTool(toolName)) {
+    const rawPath = extractWritePath(toolName, args);
+    if (rawPath !== undefined) {
+      const oracleDenial = checkOracleMutationAllowed(oracleFreeze, toolName, rawPath);
+      if (oracleDenial !== undefined) return oracleDenial;
+    }
+  }
+  return evaluateToolCallUnderScope(scope, toolName, args, workspaceRoot);
+};
+
 /** Single scope decision for a tool call under a grant — fail closed on unknown tools. */
 export const evaluateToolCallUnderScope = (
   scope: WriteScope,
@@ -167,27 +192,28 @@ export const evaluateToolCallUnderScope = (
   };
 };
 
-const toBlockResult = (denial: ScopeDenial): BeforeToolCallResult & ToolCallEventResult => ({
+const toBlockResult = (denial: GrantDenial): BeforeToolCallResult & ToolCallEventResult => ({
   block: true,
   reason: denial.reason,
 });
 
-/** pi-agent-core hook: block mutation tools outside the granted scope. */
+/** pi-agent-core hook: block mutation tools outside grant or frozen oracle. */
 export const createBeforeToolCallGuard =
-  (scope: WriteScope, workspaceRoot?: string) =>
+  (scope: WriteScope, workspaceRoot?: string, oracleFreeze?: OracleFreezeRecord) =>
   async (context: BeforeToolCallContext): Promise<BeforeToolCallResult | undefined> => {
-    const denial = evaluateToolCallUnderScope(
+    const denial = evaluateToolCallUnderGrant(
       scope,
       context.toolCall.name,
       context.args,
       workspaceRoot,
+      oracleFreeze,
     );
     return denial ? toBlockResult(denial) : undefined;
   };
 
-/** Pi extension factory (S2): enforce spine-supplied allowed paths on write/edit. */
+/** Pi extension factory (S2/W7): enforce scope and oracle freeze on write/edit. */
 export const createPathProtectionExtension =
-  (scope: WriteScope, workspaceRoot?: string) =>
+  (scope: WriteScope, workspaceRoot?: string, oracleFreeze?: OracleFreezeRecord) =>
   (pi: {
     on: (
       event: "tool_call",
@@ -195,7 +221,13 @@ export const createPathProtectionExtension =
     ) => void;
   }): void => {
     pi.on("tool_call", async (event) => {
-      const denial = evaluateToolCallUnderScope(scope, event.toolName, event.input, workspaceRoot);
+      const denial = evaluateToolCallUnderGrant(
+        scope,
+        event.toolName,
+        event.input,
+        workspaceRoot,
+        oracleFreeze,
+      );
       return denial ? toBlockResult(denial) : undefined;
     });
   };

@@ -6,7 +6,7 @@
     "module": "Preserve",
     "moduleResolution": "bundler",
     "moduleDetection": "force",
-    "types": ["bun"],
+    "types": ["bun", "node"],
 
     // Emit — bun runs TS directly; tsc is used only as the typechecker.
     "noEmit": true,

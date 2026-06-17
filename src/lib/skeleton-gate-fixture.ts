@@ -38,6 +38,11 @@ export const writeFailingGateFixture = (worktreeRoot: string): void => {
 };
 
 export const skeletonGateConfig = (): ProjectGateConfig => ({
-  command: ["bun", "test", SKELETON_GATE_FIXTURE_REL],
-  checkKind: PHASE1_GATE_CHECK_KIND,
+  tier: "full",
+  repoMode: "strict",
+  stages: [{ kind: PHASE1_GATE_CHECK_KIND, command: ["bun", "test", SKELETON_GATE_FIXTURE_REL] }],
+  contractPaths: [],
+  contractBaselineRel: ".orchestrator/contract-baseline.json",
+  gateBaselineRel: ".orchestrator/gate-baseline.json",
+  oracleFreezeRel: ".orchestrator/oracle-freeze.json",
 });
