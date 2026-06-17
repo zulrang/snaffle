@@ -18,10 +18,21 @@ import type { StubInvocationMetadata } from "../pi/invoke-stub-agent";
  */
 
 /** Raw invocation context material hashed into `GenerationInputs.contextHash`. */
-export interface StubGenerationContext {
-  readonly targetPath: string;
+export interface StubGenerationWrite {
+  readonly path: string;
   readonly content: string;
+}
+
+export interface StubGenerationAgentResult {
+  readonly outcome: string;
+  readonly summary: string;
+  readonly edits: readonly { readonly path: string; readonly operation: string }[];
+}
+
+export interface StubGenerationContext {
+  readonly writes: readonly StubGenerationWrite[];
   readonly allowedPaths: readonly string[];
+  readonly agentResult?: StubGenerationAgentResult;
 }
 
 /** Phase 1 skeleton execution plan pin (D21 thin slice). */
@@ -58,16 +69,18 @@ export const hashCanonicalJson = (value: unknown): ContentHash => hashUtf8(canon
 export const computePromptHash = (prompt: string): ContentHash => hashUtf8(prompt);
 
 export const stubGenerationContextFromTask = (input: {
-  readonly targetPath: string;
-  readonly content: string;
+  readonly writes: readonly { readonly path: string; readonly content: string }[];
   readonly scope?: WriteScope;
+  readonly agentResult?: StubGenerationAgentResult;
 }): StubGenerationContext => ({
-  targetPath: input.targetPath,
-  content: input.content,
+  writes: [...input.writes]
+    .map((write) => ({ path: write.path, content: write.content }))
+    .sort((a, b) => a.path.localeCompare(b.path)),
   allowedPaths:
     input.scope === undefined
       ? []
       : [...input.scope.allowedPaths].map(String).sort((a, b) => a.localeCompare(b)),
+  ...(input.agentResult === undefined ? {} : { agentResult: input.agentResult }),
 });
 
 export const computeContextHash = (context: StubGenerationContext): ContentHash =>

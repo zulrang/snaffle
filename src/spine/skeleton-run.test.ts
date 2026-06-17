@@ -96,7 +96,7 @@ describe("W8 — end-to-end skeleton wiring", () => {
     const store = openProvenanceStore(join(repoRoot, PROVENANCE_DB_DIR, PROVENANCE_DB_FILE));
     const stored = must(store.getByGenerationId(ids.generationId));
     expect(stored?.record.invocationId).toBe(ids.invocationId);
-    expect(must(store.verifyContextHash(ids.generationId))).toBe(true);
+    expect(must(store.verifyGenerationRecord(ids.generationId))).toBe(true);
     store.close();
 
     expect(await readWriterClaim(repoRoot)).toBeNull();

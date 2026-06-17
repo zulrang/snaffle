@@ -225,20 +225,15 @@ export const runSkeletonLineage = async (
       return err({ kind: "agent_invoke", detail: invoked.error.kind });
     }
 
-    const primaryWrite = task.writes[0];
-    if (primaryWrite === undefined) {
-      return err({ kind: "unexpected_variant_outcome", detail: "no writes configured" });
-    }
-
     const logged = logStubGeneration(store, {
       generationId: input.ids.generationId,
       lineageId: input.lineage.lineageId,
       invocationId: input.ids.invocationId,
       prompt: task.prompt,
-      targetPath: primaryWrite.path,
-      content: primaryWrite.content,
+      writes: task.writes,
       metadata: invoked.value.metadata,
       scope: grant.value.scope,
+      agentResult: invoked.value.agentResult,
       recordedAt: at.value,
     });
     if (!logged.ok) {

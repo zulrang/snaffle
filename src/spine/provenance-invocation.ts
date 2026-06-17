@@ -1,3 +1,4 @@
+import type { AgentResult } from "../domain/agent";
 import type { GenerationId, InvocationId, LineageId } from "../domain/ids";
 import { type GenerationRecord, makeGenerationRecord } from "../domain/provenance";
 import type { WriteScope } from "../domain/scope";
@@ -5,6 +6,7 @@ import { err, ok, parseTimestamp, type Result, type Timestamp } from "../domain/
 import {
   buildGenerationInputs,
   computeGenerationContentHash,
+  type StubGenerationAgentResult,
   stubGenerationContextFromTask,
 } from "../lib/provenance-hash";
 import type {
@@ -26,23 +28,34 @@ export interface LogStubGenerationInput {
   readonly lineageId: LineageId;
   readonly invocationId: InvocationId;
   readonly prompt: string;
-  readonly targetPath: string;
-  readonly content: string;
+  readonly writes: readonly { readonly path: string; readonly content: string }[];
   readonly metadata: StubInvocationMetadata;
   readonly scope?: WriteScope;
+  readonly agentResult?: AgentResult;
   readonly recordedAt?: Timestamp;
 }
 
 export type LogStubGenerationError = ProvenanceStoreError | { readonly kind: "invalid_record" };
 
+const agentResultForContext = (result: AgentResult): StubGenerationAgentResult => ({
+  outcome: result.outcome,
+  summary: result.summary,
+  edits: result.edits.map((edit) => ({ path: edit.path, operation: edit.operation })),
+});
+
+const buildContext = (input: LogStubGenerationInput) =>
+  stubGenerationContextFromTask({
+    writes: input.writes,
+    ...(input.scope === undefined ? {} : { scope: input.scope }),
+    ...(input.agentResult === undefined
+      ? {}
+      : { agentResult: agentResultForContext(input.agentResult) }),
+  });
+
 export const buildStubGenerationRecord = (
   input: LogStubGenerationInput,
 ): Result<GenerationRecord, { readonly kind: "invalid_record" }> => {
-  const context = stubGenerationContextFromTask(
-    input.scope === undefined
-      ? { targetPath: input.targetPath, content: input.content }
-      : { targetPath: input.targetPath, content: input.content, scope: input.scope },
-  );
+  const context = buildContext(input);
   const inputs = buildGenerationInputs({
     metadata: input.metadata,
     prompt: input.prompt,
@@ -77,11 +90,7 @@ export const logStubGeneration = (
 
   const material: StoredGenerationMaterial = {
     prompt: input.prompt,
-    context: stubGenerationContextFromTask(
-      input.scope === undefined
-        ? { targetPath: input.targetPath, content: input.content }
-        : { targetPath: input.targetPath, content: input.content, scope: input.scope },
-    ),
+    context: buildContext(input),
   };
 
   const inserted = store.insert(record.value, material);

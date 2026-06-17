@@ -50,9 +50,9 @@ describe("W7 — provenance logging after stub invocation (D10)", () => {
         lineageId: must(LineageId("lineage-w7-spine")),
         invocationId,
         prompt,
-        targetPath,
-        content,
+        writes: [{ path: targetPath, content }],
         metadata: outcome.metadata,
+        agentResult: outcome.agentResult,
       }),
     );
 
@@ -60,6 +60,7 @@ describe("W7 — provenance logging after stub invocation (D10)", () => {
 
     const stored = must(store.getByGenerationId(generationId));
     expect(stored?.record.invocationId).toBe(invocationId);
-    expect(must(store.verifyContextHash(generationId))).toBe(true);
+    expect(stored?.material.context.agentResult?.outcome).toBe("succeeded");
+    expect(must(store.verifyGenerationRecord(generationId))).toBe(true);
   });
 });

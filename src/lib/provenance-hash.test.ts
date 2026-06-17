@@ -17,8 +17,7 @@ describe("provenance-hash", () => {
 
   test("context hash recomputes from stored context material", () => {
     const context = stubGenerationContextFromTask({
-      targetPath: "src/domain/gate.ts",
-      content: "// edit\n",
+      writes: [{ path: "src/domain/gate.ts", content: "// edit\n" }],
     });
     const inputs = {
       model: { provider: "orchestrator-stub", model: "orchestrator-stub-v1", version: "0.74.0" },

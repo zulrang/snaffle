@@ -6,18 +6,13 @@ import type { GenerationRecord } from "../domain/provenance";
 import { makeGenerationRecord } from "../domain/provenance";
 import {
   type ContentHash,
-  contentHashEquals,
   err,
   ok,
   parseContentHash,
   parseTimestamp,
   type Result,
 } from "../domain/shared";
-import {
-  computeContextHash,
-  type StubGenerationContext,
-  verifyGenerationInputs,
-} from "./provenance-hash";
+import { type StubGenerationContext, verifyGenerationInputs } from "./provenance-hash";
 
 /**
  * SQLite provenance store (D10, D18, W7).
@@ -81,6 +76,7 @@ export interface ProvenanceStore {
     invocationId: InvocationId,
   ): Result<StoredGeneration | undefined, ProvenanceStoreError>;
   verifyContextHash(generationId: GenerationId): Result<boolean, ProvenanceStoreError>;
+  verifyGenerationRecord(generationId: GenerationId): Result<boolean, ProvenanceStoreError>;
   close(): void;
 }
 
@@ -107,6 +103,78 @@ interface GenerationRecordRow {
   readonly prompt: unknown;
   readonly context_payload_json: unknown;
 }
+
+interface StoredContextPayload {
+  readonly allowedPaths?: unknown;
+  readonly writes?: unknown;
+  readonly agentResult?: unknown;
+  readonly targetPath?: unknown;
+  readonly content?: unknown;
+}
+
+interface StoredAgentResultPayload {
+  readonly outcome?: unknown;
+  readonly summary?: unknown;
+  readonly edits?: unknown;
+}
+
+const parseStoredContext = (raw: unknown): StubGenerationContext | undefined => {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const parsed = raw as StoredContextPayload;
+  if (
+    !Array.isArray(parsed.allowedPaths) ||
+    !parsed.allowedPaths.every((path) => typeof path === "string")
+  ) {
+    return undefined;
+  }
+
+  const allowedPaths = [...parsed.allowedPaths] as string[];
+
+  if (Array.isArray(parsed.writes)) {
+    const writes = parsed.writes.flatMap((item) => {
+      if (typeof item !== "object" || item === null) return [];
+      const write = item as { path?: unknown; content?: unknown };
+      if (typeof write.path !== "string" || typeof write.content !== "string") return [];
+      return [{ path: write.path, content: write.content }];
+    });
+    if (writes.length === 0) return undefined;
+
+    let agentResult: StubGenerationContext["agentResult"];
+    if (parsed.agentResult !== undefined) {
+      if (typeof parsed.agentResult !== "object" || parsed.agentResult === null) return undefined;
+      const ar = parsed.agentResult as StoredAgentResultPayload;
+      if (
+        typeof ar.outcome !== "string" ||
+        typeof ar.summary !== "string" ||
+        !Array.isArray(ar.edits)
+      ) {
+        return undefined;
+      }
+      const edits = ar.edits.flatMap((item) => {
+        if (typeof item !== "object" || item === null) return [];
+        const edit = item as { path?: unknown; operation?: unknown };
+        if (typeof edit.path !== "string" || typeof edit.operation !== "string") return [];
+        return [{ path: edit.path, operation: edit.operation }];
+      });
+      agentResult = { outcome: ar.outcome, summary: ar.summary, edits };
+    }
+
+    return {
+      writes,
+      allowedPaths,
+      ...(agentResult === undefined ? {} : { agentResult }),
+    };
+  }
+
+  if (typeof parsed.targetPath === "string" && typeof parsed.content === "string") {
+    return {
+      writes: [{ path: parsed.targetPath, content: parsed.content }],
+      allowedPaths,
+    };
+  }
+
+  return undefined;
+};
 
 const parseStoredGeneration = (row: GenerationRecordRow): StoredGeneration | undefined => {
   const generationIdRaw = row.generation_id;
@@ -186,20 +254,9 @@ const parseStoredGeneration = (row: GenerationRecordRow): StoredGeneration | und
 
   let context: StubGenerationContext;
   try {
-    const parsed = JSON.parse(contextPayloadJsonRaw) as Partial<StubGenerationContext>;
-    if (
-      typeof parsed.targetPath !== "string" ||
-      typeof parsed.content !== "string" ||
-      !Array.isArray(parsed.allowedPaths) ||
-      !parsed.allowedPaths.every((path) => typeof path === "string")
-    ) {
-      return undefined;
-    }
-    context = {
-      targetPath: parsed.targetPath,
-      content: parsed.content,
-      allowedPaths: [...parsed.allowedPaths],
-    };
+    const parsedContext = parseStoredContext(JSON.parse(contextPayloadJsonRaw));
+    if (parsedContext === undefined) return undefined;
+    context = parsedContext;
   } catch {
     return undefined;
   }
@@ -307,7 +364,10 @@ export const openProvenanceStore = (dbPath: string): ProvenanceStore => {
   ): Result<StoredGeneration | undefined, ProvenanceStoreError> => {
     try {
       return ok(
-        queryOne("SELECT * FROM generation_records WHERE invocation_id = ? LIMIT 1", invocationId),
+        queryOne(
+          "SELECT * FROM generation_records WHERE invocation_id = ? ORDER BY recorded_at DESC LIMIT 1",
+          invocationId,
+        ),
       );
     } catch (error) {
       return err({
@@ -317,14 +377,23 @@ export const openProvenanceStore = (dbPath: string): ProvenanceStore => {
     }
   };
 
-  const verifyContextHash = (generationId: GenerationId): Result<boolean, ProvenanceStoreError> => {
+  const verifyGenerationRecord = (
+    generationId: GenerationId,
+  ): Result<boolean, ProvenanceStoreError> => {
     const stored = getByGenerationId(generationId);
     if (!stored.ok) return stored;
     if (stored.value === undefined) return ok(false);
 
-    const recomputed = computeContextHash(stored.value.material.context);
-    return ok(contentHashEquals(recomputed, stored.value.record.inputs.contextHash));
+    const verified = verifyGenerationInputs(
+      stored.value.record.inputs,
+      stored.value.record.contentHash,
+      stored.value.material,
+    );
+    return ok(verified.ok);
   };
+
+  const verifyContextHash = (generationId: GenerationId): Result<boolean, ProvenanceStoreError> =>
+    verifyGenerationRecord(generationId);
 
   return {
     dbPath,
@@ -332,6 +401,7 @@ export const openProvenanceStore = (dbPath: string): ProvenanceStore => {
     getByGenerationId,
     getByInvocationId,
     verifyContextHash,
+    verifyGenerationRecord,
     close: () => db.close(),
   };
 };

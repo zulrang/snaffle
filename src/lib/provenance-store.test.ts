@@ -38,8 +38,7 @@ describe("W7 — SQLite provenance store (D10)", () => {
 
     const prompt = "Apply a trivial edit to src/domain/gate.ts";
     const context = stubGenerationContextFromTask({
-      targetPath: "src/domain/gate.ts",
-      content: "// w7 edit\n",
+      writes: [{ path: "src/domain/gate.ts", content: "// w7 edit\n" }],
     });
     const metadata = {
       provider: "orchestrator-stub",
@@ -74,6 +73,43 @@ describe("W7 — SQLite provenance store (D10)", () => {
     const byInvocation = must(store.getByInvocationId(invocationId));
     expect(byInvocation?.record.generationId).toBe(generationId);
 
-    expect(must(store.verifyContextHash(generationId))).toBe(true);
+    expect(must(store.verifyGenerationRecord(generationId))).toBe(true);
+  });
+
+  test("detects tampered prompt material on read-back", () => {
+    workspaceRoot = mkdtempSync(join(tmpdir(), "orchestrator-w7-"));
+    dbPath = join(workspaceRoot, ".orchestrator", "provenance.sqlite");
+    store = openProvenanceStore(dbPath);
+
+    const prompt = "original prompt";
+    const context = stubGenerationContextFromTask({
+      writes: [{ path: "src/domain/gate.ts", content: "// edit\n" }],
+    });
+    const metadata = {
+      provider: "orchestrator-stub",
+      modelId: STUB_MODEL_ID,
+      modelVersion: STUB_MODEL_VERSION,
+      sdkVersions: { piAgentCore: "0.74.0", piAi: "0.74.0" },
+    };
+    const inputs = buildGenerationInputs({ metadata, prompt, context });
+    const contentHash = computeGenerationContentHash(inputs);
+    const generationId = must(GenerationId("gen-w7-tamper"));
+    const lineageId = must(LineageId("lineage-w7"));
+    const invocationId = must(InvocationId("inv-w7-tamper"));
+    const recordedAt = must(parseTimestamp(1_700_000_000_001));
+
+    const record = must(
+      makeGenerationRecord({
+        generationId,
+        lineageId,
+        invocationId,
+        inputs,
+        contentHash,
+        recordedAt,
+      }),
+    );
+
+    must(store.insert(record, { prompt: "tampered prompt", context }));
+    expect(must(store.verifyGenerationRecord(generationId))).toBe(false);
   });
 });
