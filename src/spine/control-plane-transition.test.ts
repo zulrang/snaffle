@@ -91,4 +91,31 @@ describe("W6 — spine control-plane transition review (D19)", () => {
     if (reviewed.kind !== "transition_applied") throw new Error("expected merge");
     expect(reviewed.newState).toEqual({ status: "merged" });
   });
+
+  test("reviewLineageTransition defers to green POST-gate over a failed agent self-report", () => {
+    const reviewed = must(
+      reviewLineageTransition({
+        lineage,
+        currentState: running,
+        evidence: {
+          door: lineage.door,
+          agentResult: {
+            ...agentResult,
+            outcome: "failed",
+            edits: [],
+            summary: "agent claims failure",
+          },
+          postGateReport: postGate(false),
+          grantedScope: scope,
+        },
+        transitionId: must(TransitionId("tr-w6-spine-gate-wins")),
+        at: ts,
+      }),
+    );
+
+    expect(reviewed.kind).toBe("transition_applied");
+    if (reviewed.kind !== "transition_applied")
+      throw new Error("expected gate-authoritative merge");
+    expect(reviewed.outcome).toEqual({ kind: "merge" });
+  });
 });

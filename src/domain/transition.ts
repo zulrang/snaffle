@@ -78,16 +78,19 @@ export interface MergeDecisionInput {
 /**
  * Derive the merge consequence from validated evidence (D19, §8 steps 5–9).
  *
- * Order matters: containment violations are terminal regardless of gate color; a
- * red POST-gate holds even a "succeeded" result (W6); only a green gate on an
- * in-scope, succeeded result merges (two-way) or pauses for a human (one-way).
+ * Authority ordering:
+ * 1. Scope containment (D6) — terminal regardless of gate or agent self-report.
+ * 2. Agent `refused` — pre-apply scope enforcement at the agent boundary.
+ * 3. POST-gate (D8) — sole acceptance authority; beats agent `succeeded`/`failed`.
+ * 4. Door direction — merge (two-way) or await human (one-way) when gate is green.
+ *
+ * A green gate with a `failed` agent self-report still proceeds: the gate judges
+ * applied work, not the agent's claim. A red gate with a `succeeded` self-report
+ * holds: the gate blocks regardless of what the agent says it did.
  */
 export const deriveMergeOutcome = (input: MergeDecisionInput): MergeOutcome => {
   if (!input.scopeCompliant) {
     return { kind: "reject", reason: "scope_violation" };
-  }
-  if (input.agentOutcome === "failed") {
-    return { kind: "reject", reason: "agent_failed" };
   }
   if (input.agentOutcome === "refused") {
     return { kind: "hold", reason: "agent_refused" };

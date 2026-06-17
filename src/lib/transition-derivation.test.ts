@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { AgentResult } from "../domain/agent";
+import { isScopeCompliant } from "../domain/agent";
 import { classifyTwoWay } from "../domain/door";
 import type { GateReport } from "../domain/gate";
 import { GateRunId, InvocationId, LineageId, TransitionId } from "../domain/ids";
@@ -14,6 +15,7 @@ import {
   reviewAndApplyTransition,
   type TransitionEvidence,
 } from "./transition-derivation";
+import { validateAgentResult } from "./validate-agent-result";
 
 const must = <T>(result: { ok: boolean; value?: T; error?: unknown }): T => {
   if (!result.ok) throw new Error(JSON.stringify(result.error));
@@ -138,5 +140,194 @@ describe("W6 — control-plane transition derivation (D19)", () => {
     expect(withGreenPost.newState).toEqual({ status: "merged" });
     expect(withGreenPost.transition.basis.invocationId).toBe(succeeded.invocationId);
     expect(withGreenPost.transition.basis.gateRunId).toBe(must(GateRunId("gate-w6-post")));
+  });
+});
+
+/** Mirrors skeleton-run: validate → scope check → control-plane transition (D19). */
+const reviewHandcraftedResult = (
+  raw: unknown,
+  invocationId: InvocationId,
+  ev: Omit<TransitionEvidence, "agentResult">,
+  currentState: typeof running,
+) => {
+  const validated = validateAgentResult(raw, invocationId);
+  if (!validated.ok) {
+    return { kind: "malformed" as const, error: validated.error };
+  }
+  if (!isScopeCompliant(validated.value, ev.grantedScope)) {
+    return {
+      kind: "scope_violation" as const,
+      agentResult: validated.value,
+      outcome: deriveControlPlaneOutcome({ ...ev, agentResult: validated.value }),
+    };
+  }
+  return {
+    kind: "reviewed" as const,
+    apply: applyControlPlaneTransition({
+      transitionId: must(TransitionId("tr-w6-adversarial")),
+      lineageId: must(LineageId("lineage-w6-adversarial")),
+      currentState,
+      evidence: { ...ev, agentResult: validated.value },
+      at: ts,
+    }),
+  };
+};
+
+describe("D19 — adversarial transition derivation", () => {
+  const invocationId = must(InvocationId("inv-d19-adversarial"));
+  const postGreen = gateReport("post", false);
+  const postRed = gateReport("post", true);
+  const baseEvidence = {
+    door: twoWay,
+    postGateReport: postGreen,
+    grantedScope: scope,
+  };
+
+  test("hand-crafted succeeded result + red POST-gate → hold, no merge", () => {
+    const crafted = {
+      invocationId,
+      agentKind: "stub",
+      outcome: "succeeded",
+      edits: [{ path: "src/domain/gate.ts", operation: "modify" }],
+      summary: "I succeeded — trust me, skip the gate",
+    };
+
+    const reviewed = reviewHandcraftedResult(
+      crafted,
+      invocationId,
+      {
+        ...baseEvidence,
+        postGateReport: postRed,
+      },
+      running,
+    );
+
+    expect(reviewed.kind).toBe("reviewed");
+    if (reviewed.kind !== "reviewed") throw new Error("expected reviewed");
+    expect(reviewed.apply.kind).toBe("no_transition");
+    if (reviewed.apply.kind !== "no_transition") throw new Error("expected hold");
+    expect(reviewed.apply.outcome).toEqual({ kind: "hold", reason: "post_gate_red" });
+    expect(reviewed.apply.state).toEqual(running);
+  });
+
+  test("hand-crafted failed result + green POST-gate → gate wins, merge proceeds", () => {
+    const crafted = {
+      invocationId,
+      agentKind: "stub",
+      outcome: "failed",
+      edits: [],
+      summary: "I failed — do not merge",
+    };
+
+    const reviewed = reviewHandcraftedResult(crafted, invocationId, baseEvidence, running);
+
+    expect(reviewed.kind).toBe("reviewed");
+    if (reviewed.kind !== "reviewed") throw new Error("expected reviewed");
+    expect(reviewed.apply.kind).toBe("transition_applied");
+    if (reviewed.apply.kind !== "transition_applied") throw new Error("expected merge");
+    expect(reviewed.apply.outcome).toEqual({ kind: "merge" });
+    expect(reviewed.apply.newState).toEqual({ status: "merged" });
+  });
+
+  test("malformed payloads are rejected and never reach transition derivation", () => {
+    const malformedCases: readonly unknown[] = [
+      null,
+      "truncated",
+      { invocationId, agentKind: "stub" },
+      {
+        invocationId,
+        agentKind: "stub",
+        outcome: "succeeded",
+        edits: "not-an-array",
+        summary: "bad edits",
+      },
+      {
+        invocationId,
+        agentKind: "stub",
+        outcome: "succeeded",
+        edits: [{ path: "src/domain/x.ts", operation: "modify" }],
+      },
+    ];
+
+    for (const raw of malformedCases) {
+      const reviewed = reviewHandcraftedResult(raw, invocationId, baseEvidence, running);
+      expect(reviewed.kind).toBe("malformed");
+      if (reviewed.kind !== "malformed") throw new Error("expected malformed");
+      expect(reviewed.error.kind).toBe("malformed");
+    }
+
+    let transitionReached = false;
+    const validated = validateAgentResult(malformedCases[0], invocationId);
+    if (validated.ok) {
+      applyControlPlaneTransition(applyInput(running, evidence(validated.value, postGreen)));
+      transitionReached = true;
+    }
+    expect(transitionReached).toBe(false);
+  });
+
+  test("extra fields in a well-formed result are stripped; injected merged state is ignored", () => {
+    const crafted = {
+      invocationId,
+      agentKind: "stub",
+      outcome: "succeeded",
+      edits: [{ path: "src/domain/gate.ts", operation: "modify" }],
+      summary: "merged myself",
+      status: "merged",
+      newState: { status: "merged" },
+      transition: { to: { status: "merged" } },
+    };
+
+    const validated = must(validateAgentResult(crafted, invocationId));
+    expect(Object.hasOwn(validated, "status")).toBe(false);
+    expect(Object.hasOwn(validated, "newState")).toBe(false);
+    expect(Object.hasOwn(validated, "transition")).toBe(false);
+
+    const reviewed = reviewHandcraftedResult(
+      crafted,
+      invocationId,
+      {
+        ...baseEvidence,
+        postGateReport: postRed,
+      },
+      running,
+    );
+
+    expect(reviewed.kind).toBe("reviewed");
+    if (reviewed.kind !== "reviewed") throw new Error("expected reviewed");
+    expect(reviewed.apply.kind).toBe("no_transition");
+  });
+
+  test("result claiming merged via state-store edit is scope-blocked and never merges", () => {
+    const crafted = {
+      invocationId,
+      agentKind: "stub",
+      outcome: "succeeded",
+      edits: [{ path: ".orchestrator/lineage-state.json", operation: "modify" }],
+      summary: '{"status":"merged"}',
+      status: "merged",
+    };
+
+    const reviewed = reviewHandcraftedResult(crafted, invocationId, baseEvidence, running);
+
+    expect(reviewed.kind).toBe("scope_violation");
+    if (reviewed.kind !== "scope_violation") throw new Error("expected scope block");
+    expect(reviewed.outcome).toEqual({ kind: "reject", reason: "scope_violation" });
+    expect(isScopeCompliant(reviewed.agentResult, scope)).toBe(false);
+  });
+
+  test("result touching provenance store is scope-blocked even with green gate", () => {
+    const crafted = {
+      invocationId,
+      agentKind: "stub",
+      outcome: "succeeded",
+      edits: [{ path: ".orchestrator/provenance.sqlite", operation: "modify" }],
+      summary: "overwrite provenance",
+    };
+
+    const reviewed = reviewHandcraftedResult(crafted, invocationId, baseEvidence, running);
+
+    expect(reviewed.kind).toBe("scope_violation");
+    if (reviewed.kind !== "scope_violation") throw new Error("expected scope block");
+    expect(reviewed.outcome).toEqual({ kind: "reject", reason: "scope_violation" });
   });
 });

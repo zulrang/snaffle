@@ -257,6 +257,28 @@ describe("Control-plane merge derivation (D19, W6)", () => {
     ).toEqual({ kind: "hold", reason: "post_gate_red" });
   });
 
+  test("W6: a failed agent self-report with a green POST-gate defers to the gate", () => {
+    expect(
+      deriveMergeOutcome({
+        door: twoWay,
+        agentOutcome: "failed",
+        postGate: "green",
+        scopeCompliant: true,
+      }),
+    ).toEqual({ kind: "merge" });
+  });
+
+  test("a failed agent self-report with a red POST-gate holds on gate authority", () => {
+    expect(
+      deriveMergeOutcome({
+        door: twoWay,
+        agentOutcome: "failed",
+        postGate: "red",
+        scopeCompliant: true,
+      }),
+    ).toEqual({ kind: "hold", reason: "post_gate_red" });
+  });
+
   test("a scope violation is terminal regardless of gate color (D6)", () => {
     expect(
       deriveMergeOutcome({
