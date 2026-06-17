@@ -36,6 +36,18 @@ export interface RunGateInput {
 
 export interface GateRunnerOptions {
   readonly runCommand?: RunGateCommand;
+  /** Test/audit hook: proves PRE and POST enter the same runner entry (D12). */
+  readonly onTrace?: (trace: GateRunTrace) => void;
+}
+
+/** Stable id recorded in gate traces — PRE and POST must both emit this. */
+export const GATE_DETERMINISTIC_ENTRY = "lib/gate-runner#runDeterministicGate" as const;
+
+export interface GateRunTrace {
+  readonly entry: typeof GATE_DETERMINISTIC_ENTRY;
+  readonly phase: GatePhase;
+  readonly command: readonly string[];
+  readonly worktreeRoot: string;
 }
 
 export type PreGateBlockedError = {
@@ -89,6 +101,13 @@ export const runDeterministicGate = async (
   input: RunGateInput,
   options: GateRunnerOptions = {},
 ): Promise<GateReport> => {
+  options.onTrace?.({
+    entry: GATE_DETERMINISTIC_ENTRY,
+    phase: input.phase,
+    command: input.config.command,
+    worktreeRoot: input.worktreeRoot,
+  });
+
   const runCommand = options.runCommand ?? runGateCommand;
   const commandResult = await runCommand(input.worktreeRoot, input.config.command);
   const ranAt = parseTimestamp(Date.now());

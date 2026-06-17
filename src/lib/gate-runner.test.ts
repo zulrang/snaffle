@@ -6,7 +6,9 @@ import { canStartFromPre, gateOutcome, gatePassed } from "../domain/gate";
 import { GateRunId, LineageId } from "../domain/ids";
 import { defaultPhase1GateConfig, loadGateConfig } from "./gate-config";
 import {
+  GATE_DETERMINISTIC_ENTRY,
   type GateCommandResult,
+  type GateRunTrace,
   type RunGateCommand,
   requireGreenPreGate,
   runDeterministicGate,
@@ -83,20 +85,27 @@ describe("W5 — deterministic gate PRE and POST (D8)", () => {
     writeMinimalWorktree(worktreeRoot, "exit 0");
 
     const invocations: Array<{ phase: string; command: readonly string[] }> = [];
+    const traces: GateRunTrace[] = [];
     const runCommand: RunGateCommand = async (root, command) => {
       invocations.push({ phase: invocations.length === 0 ? "pre" : "post", command });
       expect(root).toBe(worktreeRoot);
       const result: GateCommandResult = { exitCode: 0, stdout: "", stderr: "" };
       return result;
     };
+    const runnerOptions = {
+      runCommand,
+      onTrace: (trace: GateRunTrace) => {
+        traces.push(trace);
+      },
+    };
 
     const pre = await runPreGate(
       { ...ids, gateRunId: must(GateRunId("gate-pre")), worktreeRoot, config },
-      { runCommand },
+      runnerOptions,
     );
     const post = await runPostGate(
       { ...ids, gateRunId: must(GateRunId("gate-post")), worktreeRoot, config },
-      { runCommand },
+      runnerOptions,
     );
 
     expect(pre.phase).toBe("pre");
@@ -108,12 +117,28 @@ describe("W5 — deterministic gate PRE and POST (D8)", () => {
       { phase: "post", command: config.command },
     ]);
 
+    expect(traces).toEqual([
+      {
+        entry: GATE_DETERMINISTIC_ENTRY,
+        phase: "pre",
+        command: config.command,
+        worktreeRoot,
+      },
+      {
+        entry: GATE_DETERMINISTIC_ENTRY,
+        phase: "post",
+        command: config.command,
+        worktreeRoot,
+      },
+    ]);
+
     const direct = await runDeterministicGate(
       { ...ids, gateRunId: must(GateRunId("gate-direct")), phase: "post", worktreeRoot, config },
-      { runCommand },
+      runnerOptions,
     );
     expect(direct.checks[0]?.status).toBe("passed");
     expect(invocations.at(-1)?.command).toEqual(config.command);
+    expect(traces.at(-1)?.entry).toBe(GATE_DETERMINISTIC_ENTRY);
   });
 
   test("runs the identical check POST-apply and surfaces failure", async () => {
