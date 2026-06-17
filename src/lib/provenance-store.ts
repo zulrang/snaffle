@@ -63,6 +63,14 @@ export type ProvenanceStoreError =
   | { readonly kind: "duplicate_generation"; readonly generationId: string }
   | { readonly kind: "database_error"; readonly detail: string };
 
+export interface GenerationSummary {
+  readonly generationId: GenerationId;
+  readonly lineageId: LineageId;
+  readonly invocationId: InvocationId;
+  readonly recordedAt: number;
+  readonly verified: boolean;
+}
+
 export interface ProvenanceStore {
   readonly dbPath: string;
   insert(
@@ -75,6 +83,7 @@ export interface ProvenanceStore {
   getByInvocationId(
     invocationId: InvocationId,
   ): Result<StoredGeneration | undefined, ProvenanceStoreError>;
+  listRecentGenerations(limit: number): Result<readonly GenerationSummary[], ProvenanceStoreError>;
   verifyContextHash(generationId: GenerationId): Result<boolean, ProvenanceStoreError>;
   verifyGenerationRecord(generationId: GenerationId): Result<boolean, ProvenanceStoreError>;
   close(): void;
@@ -377,6 +386,61 @@ export const openProvenanceStore = (dbPath: string): ProvenanceStore => {
     }
   };
 
+  const listRecentGenerations = (
+    limit: number,
+  ): Result<readonly GenerationSummary[], ProvenanceStoreError> => {
+    if (!Number.isInteger(limit) || limit <= 0) {
+      return err({ kind: "database_error", detail: "limit must be a positive integer" });
+    }
+    try {
+      const rows = db
+        .query(
+          `SELECT generation_id, lineage_id, invocation_id, recorded_at
+           FROM generation_records ORDER BY recorded_at DESC LIMIT ?`,
+        )
+        .all(limit) as Array<{
+        generation_id: unknown;
+        lineage_id: unknown;
+        invocation_id: unknown;
+        recorded_at: unknown;
+      }>;
+
+      const summaries: GenerationSummary[] = [];
+      for (const row of rows) {
+        if (
+          typeof row.generation_id !== "string" ||
+          typeof row.lineage_id !== "string" ||
+          typeof row.invocation_id !== "string" ||
+          typeof row.recorded_at !== "number"
+        ) {
+          continue;
+        }
+        const generationId = GenerationId(row.generation_id);
+        const lineageId = LineageId(row.lineage_id);
+        const invocationId = InvocationId(row.invocation_id);
+        if (!generationId.ok || !lineageId.ok || !invocationId.ok) continue;
+
+        const verified = verifyGenerationRecord(generationId.value);
+        if (!verified.ok) return verified;
+
+        summaries.push({
+          generationId: generationId.value,
+          lineageId: lineageId.value,
+          invocationId: invocationId.value,
+          recordedAt: row.recorded_at,
+          verified: verified.value,
+        });
+      }
+
+      return ok(summaries);
+    } catch (error) {
+      return err({
+        kind: "database_error",
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+
   const verifyGenerationRecord = (
     generationId: GenerationId,
   ): Result<boolean, ProvenanceStoreError> => {
@@ -400,6 +464,7 @@ export const openProvenanceStore = (dbPath: string): ProvenanceStore => {
     insert,
     getByGenerationId,
     getByInvocationId,
+    listRecentGenerations,
     verifyContextHash,
     verifyGenerationRecord,
     close: () => db.close(),
