@@ -29,20 +29,31 @@ describe("phase1 CLI — argv parsing", () => {
       command: "run",
       repoRoot: process.cwd(),
       variant: "merge_success",
+      legacySkeleton: false,
       provenanceLimit: 10,
     });
     expect(parseCliArgs(["status", "--repo", "/tmp/ws", "--limit", "5"])).toEqual({
       command: "status",
       repoRoot: "/tmp/ws",
       variant: "merge_success",
+      legacySkeleton: false,
       provenanceLimit: 5,
     });
     expect(parseCliArgs(["run", "--variant", "scope_blocked", "--owner", "cli-a"])).toEqual({
       command: "run",
       repoRoot: process.cwd(),
       variant: "scope_blocked",
+      legacySkeleton: false,
       ownerId: "cli-a",
       provenanceLimit: 10,
+    });
+    expect(parseCliArgs(["decisions", "list", "--repo", "/tmp/ws"])).toEqual({
+      command: "decisions",
+      repoRoot: "/tmp/ws",
+      variant: "merge_success",
+      legacySkeleton: false,
+      provenanceLimit: 10,
+      decisionsCommand: "list",
     });
     expect(parseCliArgs(["nope"])).toBeUndefined();
   });

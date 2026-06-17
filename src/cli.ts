@@ -1,36 +1,60 @@
 #!/usr/bin/env bun
+import {
+  type DecisionsCommand,
+  listPendingDecisions,
+  recordDecisionForLineage,
+} from "./spine/decisions-cli.ts";
 import { type Phase1RunError, readPhase1Status, runPhase1 } from "./spine/phase1-cli.ts";
+import { runRegimeLineage } from "./spine/regime-cli.ts";
 import type { SkeletonVariant } from "./spine/skeleton-run.ts";
 
 const VARIANTS = ["merge_success", "scope_blocked", "post_gate_rejected"] as const;
 
 const usage = (): void => {
   console.error(`usage:
-  orchestrator run [--repo <path>] [--variant ${VARIANTS.join("|")}] [--owner <id>]
-  orchestrator status [--repo <path>] [--limit <n>]`);
+  orchestrator run [--repo <path>] [--legacy-skeleton] [--variant ${VARIANTS.join("|")}] [--owner <id>]
+  orchestrator status [--repo <path>] [--limit <n>]
+  orchestrator decisions list [--repo <path>]
+  orchestrator decisions approve|reject --lineage <id> [--repo <path>]`);
 };
 
 const isVariant = (value: string): value is SkeletonVariant =>
   (VARIANTS as readonly string[]).includes(value);
 
+const isDecisionsCommand = (value: string): value is DecisionsCommand =>
+  value === "list" || value === "approve" || value === "reject";
+
 export interface ParsedCli {
-  readonly command: "run" | "status";
+  readonly command: "run" | "status" | "decisions";
   readonly repoRoot: string;
   readonly variant: SkeletonVariant;
+  readonly legacySkeleton: boolean;
   readonly ownerId?: string;
   readonly provenanceLimit: number;
+  readonly decisionsCommand?: DecisionsCommand;
+  readonly lineageId?: string;
 }
 
 export const parseCliArgs = (argv: readonly string[]): ParsedCli | undefined => {
   const command = argv[0];
-  if (command !== "run" && command !== "status") return undefined;
+  if (command !== "run" && command !== "status" && command !== "decisions") return undefined;
 
   let repoRoot = process.cwd();
   let variant: SkeletonVariant = "merge_success";
+  let legacySkeleton = false;
   let ownerId: string | undefined;
   let provenanceLimit = 10;
+  let decisionsCommand: DecisionsCommand | undefined;
+  let lineageId: string | undefined;
 
-  for (let i = 1; i < argv.length; i += 1) {
+  if (command === "decisions") {
+    const sub = argv[1];
+    if (sub === undefined || !isDecisionsCommand(sub)) return undefined;
+    decisionsCommand = sub;
+  }
+
+  const start = command === "decisions" ? 2 : 1;
+  for (let i = start; i < argv.length; i += 1) {
     const flag = argv[i];
     const next = argv[i + 1];
     if (flag === "--repo" && next !== undefined) {
@@ -40,6 +64,8 @@ export const parseCliArgs = (argv: readonly string[]): ParsedCli | undefined => 
       if (!isVariant(next)) return undefined;
       variant = next;
       i += 1;
+    } else if (flag === "--legacy-skeleton") {
+      legacySkeleton = true;
     } else if (flag === "--owner" && next !== undefined) {
       ownerId = next;
       i += 1;
@@ -47,7 +73,20 @@ export const parseCliArgs = (argv: readonly string[]): ParsedCli | undefined => 
       provenanceLimit = Number(next);
       if (!Number.isInteger(provenanceLimit) || provenanceLimit <= 0) return undefined;
       i += 1;
+    } else if (flag === "--lineage" && next !== undefined) {
+      lineageId = next;
+      i += 1;
     } else {
+      return undefined;
+    }
+  }
+
+  if (command === "decisions") {
+    if (decisionsCommand === undefined) return undefined;
+    if (
+      (decisionsCommand === "approve" || decisionsCommand === "reject") &&
+      (lineageId === undefined || lineageId.length === 0)
+    ) {
       return undefined;
     }
   }
@@ -56,8 +95,11 @@ export const parseCliArgs = (argv: readonly string[]): ParsedCli | undefined => 
     command,
     repoRoot,
     variant,
+    legacySkeleton,
     ...(ownerId === undefined ? {} : { ownerId }),
     provenanceLimit,
+    ...(decisionsCommand === undefined ? {} : { decisionsCommand }),
+    ...(lineageId === undefined ? {} : { lineageId }),
   };
 };
 
@@ -85,19 +127,55 @@ const main = async (): Promise<number> => {
     return 0;
   }
 
-  const outcome = await runPhase1({
-    repoRoot: parsed.repoRoot,
-    variant: parsed.variant,
-    ...(parsed.ownerId === undefined ? {} : { ownerId: parsed.ownerId }),
-  });
+  if (parsed.command === "decisions") {
+    if (parsed.decisionsCommand === "list") {
+      const listed = listPendingDecisions(parsed.repoRoot);
+      if (!listed.ok) {
+        console.error(JSON.stringify({ ok: false, error: listed.error }));
+        return 2;
+      }
+      console.log(JSON.stringify({ ok: true, ...listed.value }, null, 2));
+      return 0;
+    }
 
-  if (!outcome.ok) {
-    console.error(JSON.stringify({ ok: false, error: outcome.error }));
-    return exitCodeForRunError(outcome.error);
+    const recorded = recordDecisionForLineage(
+      parsed.repoRoot,
+      parsed.lineageId as string,
+      parsed.decisionsCommand as "approve" | "reject",
+    );
+    if (!recorded.ok) {
+      console.error(JSON.stringify({ ok: false, error: recorded.error }));
+      return 2;
+    }
+    console.log(JSON.stringify({ ok: true, ...recorded.value }, null, 2));
+    return 0;
   }
 
-  console.log(JSON.stringify({ ok: true, outcome: outcome.value }, null, 2));
-  if (outcome.value.kind === "merged") return 0;
+  if (parsed.legacySkeleton) {
+    const outcome = await runPhase1({
+      repoRoot: parsed.repoRoot,
+      variant: parsed.variant,
+      ...(parsed.ownerId === undefined ? {} : { ownerId: parsed.ownerId }),
+    });
+
+    if (!outcome.ok) {
+      console.error(JSON.stringify({ ok: false, error: outcome.error }));
+      return exitCodeForRunError(outcome.error);
+    }
+
+    console.log(JSON.stringify({ ok: true, outcome: outcome.value }, null, 2));
+    if (outcome.value.kind === "merged") return 0;
+    return 1;
+  }
+
+  const regime = await runRegimeLineage({ repoRoot: parsed.repoRoot });
+  if (!regime.ok) {
+    console.error(JSON.stringify({ ok: false, error: regime.error }));
+    return 2;
+  }
+
+  console.log(JSON.stringify({ ok: true, outcome: regime.value }, null, 2));
+  if (regime.value.terminal.kind === "merged") return 0;
   return 1;
 };
 
