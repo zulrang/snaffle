@@ -1,9 +1,10 @@
 import { join } from "node:path";
-import type { AgentResult } from "../domain/agent";
+import { isScopeCompliant } from "../domain/agent";
 import type { GateReport } from "../domain/gate";
 import { gatePassed } from "../domain/gate";
 import type { GateRunId, GenerationId, GrantId, InvocationId, TransitionId } from "../domain/ids";
 import type { Lineage } from "../domain/lineage";
+import { parseRepoPath } from "../domain/scope";
 import { err, ok, parseTimestamp, type Result, type Timestamp } from "../domain/shared";
 import type { LineageState, StateTransition } from "../domain/transition";
 import { issueCapabilityGrant } from "../lib/capability-grant";
@@ -65,6 +66,7 @@ export type SkeletonRunError =
   | { readonly kind: "agent_result_invalid"; readonly detail: string }
   | { readonly kind: "provenance"; readonly detail: string }
   | { readonly kind: "transition"; readonly detail: string }
+  | { readonly kind: "worktree_apply"; readonly detail: string }
   | { readonly kind: "unexpected_variant_outcome"; readonly detail: string };
 
 export type SkeletonRunOutcome =
@@ -128,13 +130,28 @@ const variantTask = (
 
 const contentForEdit = (
   writes: readonly ScopedWriteAttempt[],
-  agentResult: AgentResult,
-): readonly { readonly path: string; readonly content: string }[] => {
-  const byPath = new Map(writes.map((write) => [write.path, write.content]));
-  return agentResult.edits.flatMap((edit) => {
-    const content = byPath.get(edit.path);
-    return content === undefined ? [] : [{ path: edit.path, content }];
-  });
+  agentResult: { readonly edits: readonly { readonly path: string }[] },
+): Result<
+  readonly { readonly path: string; readonly content: string }[],
+  { readonly detail: string }
+> => {
+  const byRepoPath = new Map<string, string>();
+  for (const write of writes) {
+    const parsed = parseRepoPath(write.path);
+    if (!parsed.ok) return err({ detail: write.path });
+    byRepoPath.set(parsed.value, write.content);
+  }
+
+  const applied: { path: string; content: string }[] = [];
+  for (const edit of agentResult.edits) {
+    const content = byRepoPath.get(edit.path);
+    if (content === undefined) {
+      return err({ detail: `no spine content for edit path ${edit.path}` });
+    }
+    applied.push({ path: edit.path, content });
+  }
+
+  return ok(applied);
 };
 
 const releaseLock = async (lock: WriterLock | undefined): Promise<void> => {
@@ -247,7 +264,22 @@ export const runSkeletonLineage = async (
       return err({ kind: "agent_result_invalid", detail: validated.error.reason });
     }
 
-    applyWritesToWorktree(prepared.worktreeRoot, contentForEdit(task.writes, validated.value));
+    if (!isScopeCompliant(validated.value, grant.value.scope)) {
+      return err({
+        kind: "agent_result_invalid",
+        detail: "agent result edits outside granted scope",
+      });
+    }
+
+    const toApply = contentForEdit(task.writes, validated.value);
+    if (!toApply.ok) {
+      return err({ kind: "worktree_apply", detail: toApply.error.detail });
+    }
+
+    const applied = applyWritesToWorktree(prepared.worktreeRoot, toApply.value);
+    if (!applied.ok) {
+      return err({ kind: "worktree_apply", detail: applied.error.kind });
+    }
 
     const postGate = await runPostGateInWorktree(gateContext, {
       gateRunId: input.ids.postGateRunId,
