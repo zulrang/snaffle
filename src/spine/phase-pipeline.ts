@@ -1,7 +1,7 @@
 import { type AgentResult, isScopeCompliant } from "../domain/agent";
 import type { FailureVerdict, RoutingAction } from "../domain/failure";
 import { type GateReport, gatePassed } from "../domain/gate";
-import type { GateRunId, InvocationId, TransitionId } from "../domain/ids";
+import type { DecisionId, GateRunId, InvocationId, TransitionId } from "../domain/ids";
 import { InvocationId as makeInvocationId } from "../domain/ids";
 import type { Lineage } from "../domain/lineage";
 import { makeWriteScope, parseRepoPath } from "../domain/scope";
@@ -10,6 +10,7 @@ import type { LineageState, StateTransition } from "../domain/transition";
 import { AGENT_DEFINITIONS } from "../lib/agents";
 import type { BudgetGovernorState } from "../lib/budget-governor";
 import { createBudgetGovernor } from "../lib/budget-governor";
+import { type DecisionQueueStore, enqueueAwaitingHuman } from "../lib/decision-queue";
 import { classifyAndRoute } from "../lib/failure-classifier";
 import {
   initialRouterState,
@@ -20,6 +21,7 @@ import type { OracleCoverageDecision } from "../lib/oracle-coverage";
 import type { OracleFreezeRecord } from "../lib/oracle-freeze";
 import type { OrchestratorConfig } from "../lib/orchestrator-config";
 import { type PipelinePhase, type RegimePlan, selectRegimePlan } from "../lib/regime-plan";
+import { shouldSampleTwoWayMerge, twoWaySampleRateFromConfig } from "../lib/two-way-sampler";
 import { validateAgentResult } from "../lib/validate-agent-result";
 import { applyWritesToWorktree } from "../lib/worktree-writes";
 import type { PromptCacheHint } from "../pi/prompt-cache";
@@ -80,6 +82,9 @@ export interface LineagePipelineInput {
   readonly at: Timestamp;
   readonly frozenAt?: number;
   readonly cacheHint?: PromptCacheHint;
+  /** When set, parks enqueue a durable human decision (W5/W9). */
+  readonly decisionQueue?: DecisionQueueStore;
+  readonly decisionId?: DecisionId;
 }
 
 export interface PipelinePhaseRecord {
@@ -146,6 +151,34 @@ const advanceBudget = (
   }
   return next;
 };
+
+const enqueueHumanDecision = (
+  input: LineagePipelineInput,
+  kind: "merge_hold" | "two_way_sample",
+): void => {
+  if (input.decisionQueue === undefined || input.decisionId === undefined) return;
+  if (kind === "merge_hold") {
+    enqueueAwaitingHuman(input.decisionQueue, {
+      decisionId: input.decisionId,
+      lineageId: input.lineage.lineageId,
+      door: input.lineage.door,
+      enqueuedAt: input.at,
+    });
+    return;
+  }
+  input.decisionQueue.enqueue({
+    decisionId: input.decisionId,
+    lineageId: input.lineage.lineageId,
+    kind: "two_way_sample",
+    door: input.lineage.door,
+    enqueuedAt: input.at,
+  });
+};
+
+const humanHoldTransition = (reviewed: StateTransition): StateTransition => ({
+  ...reviewed,
+  to: { status: "awaiting_human" },
+});
 
 /** Run a lineage through its regime's phase sequence to a control-plane terminal. */
 export const runLineagePipeline = async (
@@ -344,12 +377,25 @@ export const runLineagePipeline = async (
     if (reviewed.value.kind === "transition_applied") {
       const status = reviewed.value.newState.status;
       if (status === "merged") {
+        const sampleRate = twoWaySampleRateFromConfig(input.config);
+        if (shouldSampleTwoWayMerge(input.lineage.lineageId, input.lineage.door, sampleRate)) {
+          enqueueHumanDecision(input, "two_way_sample");
+          return ok({
+            phases,
+            terminal: {
+              kind: "awaiting_human",
+              transition: humanHoldTransition(reviewed.value.transition),
+              postGate,
+            },
+          });
+        }
         return ok({
           phases,
           terminal: { kind: "merged", transition: reviewed.value.transition, postGate },
         });
       }
       if (status === "awaiting_human") {
+        enqueueHumanDecision(input, "merge_hold");
         return ok({
           phases,
           terminal: { kind: "awaiting_human", transition: reviewed.value.transition, postGate },

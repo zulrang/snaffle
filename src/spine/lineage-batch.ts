@@ -1,5 +1,7 @@
+import type { DecisionId } from "../domain/ids";
 import type { Lineage } from "../domain/lineage";
 import { err, ok, type Result, type Timestamp } from "../domain/shared";
+import type { DecisionQueueStore } from "../lib/decision-queue";
 import { planNextAdmissions } from "../lib/lineage-scheduler";
 import type { OracleCoverageDecision } from "../lib/oracle-coverage";
 import type { OrchestratorConfig } from "../lib/orchestrator-config";
@@ -25,6 +27,7 @@ export interface LineageBatchJob {
   readonly coverage: OracleCoverageDecision;
   readonly tasks: Partial<Record<import("../lib/regime-plan").PipelinePhase, PhaseTask>>;
   readonly ids: PipelineIds;
+  readonly decisionId?: DecisionId;
 }
 
 export interface LineageBatchInput {
@@ -34,6 +37,7 @@ export interface LineageBatchInput {
   readonly maxParallel: number;
   readonly at: Timestamp;
   readonly ownerId?: string;
+  readonly decisionQueue?: DecisionQueueStore;
 }
 
 export type LineageBatchResult = Result<LineagePipelineOutcome, PipelineError>;
@@ -54,6 +58,7 @@ const runOneJob = async (
   config: OrchestratorConfig,
   job: LineageBatchJob,
   at: Timestamp,
+  decisionQueue?: DecisionQueueStore,
 ): Promise<LineageBatchResult> => {
   const prepared = await prepareWorktreeGate(repoRoot);
   if (!prepared.ok) {
@@ -71,6 +76,8 @@ const runOneJob = async (
       tasks: job.tasks,
       ids: job.ids,
       at,
+      ...(decisionQueue === undefined ? {} : { decisionQueue }),
+      ...(job.decisionId === undefined ? {} : { decisionId: job.decisionId }),
     });
   } finally {
     await prepared.value.dispose();
@@ -114,7 +121,13 @@ export const runLineageBatch = async (
 
       for (const job of toStart) {
         const key = lineageKey(job.lineage);
-        const promise = runOneJob(input.repoRoot, input.config, job, input.at).then((result) => {
+        const promise = runOneJob(
+          input.repoRoot,
+          input.config,
+          job,
+          input.at,
+          input.decisionQueue,
+        ).then((result) => {
           results[key] = result;
           inFlight.delete(key);
           return result;
