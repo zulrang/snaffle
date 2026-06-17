@@ -20,9 +20,10 @@
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",
-    "check": "bun run typecheck && bun run lint && bun run guard:bun-native && bun run test",
-    "check:node": "npm run typecheck && npm run lint && npm run guard:bun-native && npm run test:node-smoke",
+    "check": "bun run typecheck && bun run lint && bun run guard:bun-native && bun run guard:name-branching && bun run test",
+    "check:node": "npm run typecheck && npm run lint && npm run guard:bun-native && npm run guard:name-branching && npm run test:node-smoke",
     "guard:bun-native": "node scripts/guard-no-bun-native.mjs",
+    "guard:name-branching": "node scripts/guard-name-branching.mjs",
     "test:node-smoke": "node --test scripts/node-smoke-check.mjs",
     "orchestrator": "bun src/cli.ts"
   },

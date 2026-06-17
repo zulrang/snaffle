@@ -4,6 +4,7 @@ import {
   listPendingDecisions,
   recordDecisionForLineage,
 } from "./spine/decisions-cli.ts";
+import { type EscapesCommand, listEscapes, reportEscapeClusters } from "./spine/escapes-cli.ts";
 import { type Phase1RunError, readPhase1Status, runPhase1 } from "./spine/phase1-cli.ts";
 import { runRegimeLineage } from "./spine/regime-cli.ts";
 import type { SkeletonVariant } from "./spine/skeleton-run.ts";
@@ -15,8 +16,12 @@ const usage = (): void => {
   orchestrator run [--repo <path>] [--legacy-skeleton] [--variant ${VARIANTS.join("|")}] [--owner <id>]
   orchestrator status [--repo <path>] [--limit <n>]
   orchestrator decisions list [--repo <path>]
-  orchestrator decisions approve|reject --lineage <id> [--repo <path>]`);
+  orchestrator decisions approve|reject --lineage <id> [--repo <path>]
+  orchestrator escapes list|report [--repo <path>]`);
 };
+
+const isEscapesCommand = (value: string): value is EscapesCommand =>
+  value === "list" || value === "report";
 
 const isVariant = (value: string): value is SkeletonVariant =>
   (VARIANTS as readonly string[]).includes(value);
@@ -25,19 +30,27 @@ const isDecisionsCommand = (value: string): value is DecisionsCommand =>
   value === "list" || value === "approve" || value === "reject";
 
 export interface ParsedCli {
-  readonly command: "run" | "status" | "decisions";
+  readonly command: "run" | "status" | "decisions" | "escapes";
   readonly repoRoot: string;
   readonly variant: SkeletonVariant;
   readonly legacySkeleton: boolean;
   readonly ownerId?: string;
   readonly provenanceLimit: number;
   readonly decisionsCommand?: DecisionsCommand;
+  readonly escapesCommand?: EscapesCommand;
   readonly lineageId?: string;
 }
 
 export const parseCliArgs = (argv: readonly string[]): ParsedCli | undefined => {
   const command = argv[0];
-  if (command !== "run" && command !== "status" && command !== "decisions") return undefined;
+  if (
+    command !== "run" &&
+    command !== "status" &&
+    command !== "decisions" &&
+    command !== "escapes"
+  ) {
+    return undefined;
+  }
 
   let repoRoot = process.cwd();
   let variant: SkeletonVariant = "merge_success";
@@ -47,13 +60,21 @@ export const parseCliArgs = (argv: readonly string[]): ParsedCli | undefined => 
   let decisionsCommand: DecisionsCommand | undefined;
   let lineageId: string | undefined;
 
+  let escapesCommand: EscapesCommand | undefined;
+
   if (command === "decisions") {
     const sub = argv[1];
     if (sub === undefined || !isDecisionsCommand(sub)) return undefined;
     decisionsCommand = sub;
   }
 
-  const start = command === "decisions" ? 2 : 1;
+  if (command === "escapes") {
+    const sub = argv[1];
+    if (sub === undefined || !isEscapesCommand(sub)) return undefined;
+    escapesCommand = sub;
+  }
+
+  const start = command === "decisions" || command === "escapes" ? 2 : 1;
   for (let i = start; i < argv.length; i += 1) {
     const flag = argv[i];
     const next = argv[i + 1];
@@ -99,6 +120,7 @@ export const parseCliArgs = (argv: readonly string[]): ParsedCli | undefined => 
     ...(ownerId === undefined ? {} : { ownerId }),
     provenanceLimit,
     ...(decisionsCommand === undefined ? {} : { decisionsCommand }),
+    ...(escapesCommand === undefined ? {} : { escapesCommand }),
     ...(lineageId === undefined ? {} : { lineageId }),
   };
 };
@@ -148,6 +170,26 @@ const main = async (): Promise<number> => {
       return 2;
     }
     console.log(JSON.stringify({ ok: true, ...recorded.value }, null, 2));
+    return 0;
+  }
+
+  if (parsed.command === "escapes") {
+    if (parsed.escapesCommand === "list") {
+      const listed = listEscapes(parsed.repoRoot);
+      if (!listed.ok) {
+        console.error(JSON.stringify({ ok: false, error: listed.error }));
+        return 2;
+      }
+      console.log(JSON.stringify({ ok: true, ...listed.value }, null, 2));
+      return 0;
+    }
+
+    const report = reportEscapeClusters(parsed.repoRoot);
+    if (!report.ok) {
+      console.error(JSON.stringify({ ok: false, error: report.error }));
+      return 2;
+    }
+    console.log(JSON.stringify({ ok: true, ...report.value }, null, 2));
     return 0;
   }
 

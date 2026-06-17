@@ -395,3 +395,5 @@ Four spikes (two M rollout/stateful, two S escape/spans) plus roughly four S and
 ### Dependency order
 
 S1 → W1 → W2 → W3 ; S2 → W4 → W5 ; S3 → W6 → W7 ; S4 → W8 ; W9 → W10 | W3 + W5 + W8 → W12 ; W11 ‖ (optional) ; W13 last. (Live vendor adapters, full governance pack, and extra gate stages are cut-line.)
+
+**Status: in progress** (spikes S1–S4 + work items W1–W10, W12–W13 shipped; W11 deferred per cut line 2). `bun run check` green (307 tests); acceptance in `phase6-acceptance-checklist.md`.
