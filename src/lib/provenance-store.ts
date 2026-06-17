@@ -89,23 +89,42 @@ const parseRequiredHash = (value: string): ContentHash | undefined => {
   return parsed.ok ? parsed.value : undefined;
 };
 
-const parseStoredGeneration = (row: Record<string, unknown>): StoredGeneration | undefined => {
-  const generationIdRaw = row["generation_id"];
-  const lineageIdRaw = row["lineage_id"];
-  const invocationIdRaw = row["invocation_id"];
-  const contentHashRaw = row["content_hash"];
-  const recordedAtRaw = row["recorded_at"];
-  const promptHashRaw = row["prompt_hash"];
-  const contextHashRaw = row["context_hash"];
-  const planHashRaw = row["plan_hash"];
-  const temperatureRaw = row["temperature"];
-  const modelProviderRaw = row["model_provider"];
-  const modelNameRaw = row["model_name"];
-  const modelVersionRaw = row["model_version"];
-  const seedRaw = row["seed"];
-  const toolVersionsJsonRaw = row["tool_versions_json"];
-  const promptRaw = row["prompt"];
-  const contextPayloadJsonRaw = row["context_payload_json"];
+interface GenerationRecordRow {
+  readonly generation_id: unknown;
+  readonly lineage_id: unknown;
+  readonly invocation_id: unknown;
+  readonly content_hash: unknown;
+  readonly recorded_at: unknown;
+  readonly prompt_hash: unknown;
+  readonly context_hash: unknown;
+  readonly plan_hash: unknown;
+  readonly temperature: unknown;
+  readonly model_provider: unknown;
+  readonly model_name: unknown;
+  readonly model_version: unknown;
+  readonly seed: unknown;
+  readonly tool_versions_json: unknown;
+  readonly prompt: unknown;
+  readonly context_payload_json: unknown;
+}
+
+const parseStoredGeneration = (row: GenerationRecordRow): StoredGeneration | undefined => {
+  const generationIdRaw = row.generation_id;
+  const lineageIdRaw = row.lineage_id;
+  const invocationIdRaw = row.invocation_id;
+  const contentHashRaw = row.content_hash;
+  const recordedAtRaw = row.recorded_at;
+  const promptHashRaw = row.prompt_hash;
+  const contextHashRaw = row.context_hash;
+  const planHashRaw = row.plan_hash;
+  const temperatureRaw = row.temperature;
+  const modelProviderRaw = row.model_provider;
+  const modelNameRaw = row.model_name;
+  const modelVersionRaw = row.model_version;
+  const seedRaw = row.seed;
+  const toolVersionsJsonRaw = row.tool_versions_json;
+  const promptRaw = row.prompt;
+  const contextPayloadJsonRaw = row.context_payload_json;
 
   if (
     typeof generationIdRaw !== "string" ||
@@ -266,7 +285,7 @@ export const openProvenanceStore = (dbPath: string): ProvenanceStore => {
   };
 
   const queryOne = (sql: string, param: string): StoredGeneration | undefined => {
-    const row = db.query(sql).get(param) as Record<string, unknown> | null;
+    const row = db.query(sql).get(param) as GenerationRecordRow | null;
     return row === null ? undefined : parseStoredGeneration(row);
   };
 

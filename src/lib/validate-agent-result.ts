@@ -48,20 +48,33 @@ interface RawEditFields {
   readonly operation: unknown;
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
+interface RawAgentResultObject {
+  readonly invocationId?: unknown;
+  readonly agentKind?: unknown;
+  readonly outcome?: unknown;
+  readonly edits?: unknown;
+  readonly summary?: unknown;
+}
+
+interface RawEditObject {
+  readonly path?: unknown;
+  readonly operation?: unknown;
+}
+
+const isRecord = (value: unknown): value is RawAgentResultObject =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const readAgentResultFields = (raw: Record<string, unknown>): RawAgentResultFields => ({
-  invocationId: raw["invocationId"],
-  agentKind: raw["agentKind"],
-  outcome: raw["outcome"],
-  edits: raw["edits"],
-  summary: raw["summary"],
+const readAgentResultFields = (raw: RawAgentResultObject): RawAgentResultFields => ({
+  invocationId: raw.invocationId,
+  agentKind: raw.agentKind,
+  outcome: raw.outcome,
+  edits: raw.edits,
+  summary: raw.summary,
 });
 
-const readEditFields = (raw: Record<string, unknown>): RawEditFields => ({
-  path: raw["path"],
-  operation: raw["operation"],
+const readEditFields = (raw: RawEditObject): RawEditFields => ({
+  path: raw.path,
+  operation: raw.operation,
 });
 
 const malformed = (reason: string): AgentResultValidationError => ({
@@ -79,7 +92,7 @@ const parseEdits = (raw: unknown): Result<readonly FileEdit[], AgentResultValida
     if (!isRecord(item)) {
       return err(malformed("each edit must be an object"));
     }
-    const edit = readEditFields(item);
+    const edit = readEditFields(item as RawEditObject);
     if (typeof edit.path !== "string") {
       return err(malformed("edit.path must be a string"));
     }
