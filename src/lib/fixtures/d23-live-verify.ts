@@ -27,17 +27,20 @@ const fail = (name: string, detail: string) => {
   console.error(`FAIL  ${name}: ${detail}`);
 };
 
-const readFirstLine = async (proc: ReturnType<typeof Bun.spawn>): Promise<string> => {
-  const reader = proc.stdout.getReader();
+const readFirstLine = async (stdout: ReadableStream<Uint8Array>): Promise<string> => {
+  const reader = stdout.getReader();
   const chunk = await reader.read();
   return new TextDecoder().decode(chunk.value).trim();
 };
 
 const readAll = async (proc: ReturnType<typeof Bun.spawn>): Promise<string> => {
-  const text = await new Response(proc.stdout).text();
+  const text = await new Response(proc.stdout as ReadableStream<Uint8Array>).text();
   await proc.exited;
   return text.trim();
 };
+
+const stdoutOf = (proc: ReturnType<typeof Bun.spawn>): ReadableStream<Uint8Array> =>
+  proc.stdout as ReadableStream<Uint8Array>;
 
 const workspace = mkdtempSync(join(tmpdir(), "d23-live-"));
 const lockPath = join(workspace, OWNERSHIP_LOCK_DIR, OWNERSHIP_LOCK_FILE);
@@ -49,7 +52,7 @@ try {
       stdout: "pipe",
       stderr: "pipe",
     });
-    const startedLine = await readFirstLine(holder);
+    const startedLine = await readFirstLine(stdoutOf(holder));
     const started = JSON.parse(startedLine) as { event: string; ownerId: string };
     if (started.event !== "started" || started.ownerId !== "orchestrator-a") {
       fail("fail-fast second writer", `holder did not start: ${startedLine}`);
@@ -90,7 +93,7 @@ try {
       stdout: "pipe",
       stderr: "pipe",
     });
-    const held = await readFirstLine(child);
+    const held = await readFirstLine(stdoutOf(child));
     if (held !== "held") {
       fail("SIGKILL stale reclaim", `crash holder did not acquire: ${held}`);
     } else {
@@ -99,11 +102,17 @@ try {
 
       const staleRaw = readFileSync(lockPath, "utf8");
       const t0 = performance.now();
-      const reclaimed = await acquireWriterLock({ workspaceRoot: workspace, ownerId: "after-crash" });
+      const reclaimed = await acquireWriterLock({
+        workspaceRoot: workspace,
+        ownerId: "after-crash",
+      });
       const elapsedMs = performance.now() - t0;
 
       if (!reclaimed.ok) {
-        fail("SIGKILL stale reclaim", `fresh acquire failed after SIGKILL: ${JSON.stringify(reclaimed.error)}`);
+        fail(
+          "SIGKILL stale reclaim",
+          `fresh acquire failed after SIGKILL: ${JSON.stringify(reclaimed.error)}`,
+        );
       } else if (elapsedMs > 2000) {
         fail("SIGKILL stale reclaim", `reclaim took ${elapsedMs.toFixed(0)}ms (deadlock?)`);
       } else if (reclaimed.value.ownerId !== "after-crash") {
@@ -150,7 +159,7 @@ try {
       stdout: "pipe",
       stderr: "pipe",
     });
-    const startedLine = await readFirstLine(holder);
+    const startedLine = await readFirstLine(stdoutOf(holder));
     const started = JSON.parse(startedLine) as { pid: number; startedAt: number };
     const lockBefore = readFileSync(lockPath, "utf8");
 
@@ -170,10 +179,16 @@ try {
 
     if (observed.event !== "observed") {
       fail("read-only observer", `observe failed: ${observerOut}`);
-    } else if (!observed.observerWriter?.alive || observed.observerWriter.ownerId !== "writer-live") {
+    } else if (
+      !observed.observerWriter?.alive ||
+      observed.observerWriter.ownerId !== "writer-live"
+    ) {
       fail("read-only observer", `observer did not see live writer: ${observerOut}`);
     } else if (observed.observerWriter.pid !== started.pid) {
-      fail("read-only observer", `pid mismatch: observer ${observed.observerWriter.pid} vs holder ${started.pid}`);
+      fail(
+        "read-only observer",
+        `pid mismatch: observer ${observed.observerWriter.pid} vs holder ${started.pid}`,
+      );
     } else if (lockBefore !== lockAfter) {
       fail("read-only observer", "lock file changed after observer attach/detach");
     } else if (!observed.lockUnchanged) {
