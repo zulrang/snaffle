@@ -2,6 +2,7 @@ import type { AgentResult } from "../domain/agent";
 import type { GenerationId, InvocationId, LineageId } from "../domain/ids";
 import { type GenerationRecord, makeGenerationRecord } from "../domain/provenance";
 import type { WriteScope } from "../domain/scope";
+import type { ContentHash } from "../domain/shared";
 import { err, ok, parseTimestamp, type Result, type Timestamp } from "../domain/shared";
 import {
   buildGenerationInputs,
@@ -33,6 +34,7 @@ export interface LogStubGenerationInput {
   readonly scope?: WriteScope;
   readonly agentResult?: AgentResult;
   readonly recordedAt?: Timestamp;
+  readonly planHash?: ContentHash;
 }
 
 export type LogStubGenerationError = ProvenanceStoreError | { readonly kind: "invalid_record" };
@@ -60,6 +62,7 @@ export const buildStubGenerationRecord = (
     metadata: input.metadata,
     prompt: input.prompt,
     context,
+    ...(input.planHash === undefined ? {} : { planHash: input.planHash }),
   });
   const contentHash = computeGenerationContentHash(inputs);
   const recordedAt =

@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { compileExecutionPlan, loadPlanSources } from "./plan-freezer";
 import {
+  buildGenerationInputs,
   computeContextHash,
   computeGenerationContentHash,
   computePromptHash,
@@ -57,5 +59,27 @@ describe("provenance-hash", () => {
     expect(sdkTamper.ok).toBe(false);
     if (sdkTamper.ok) throw new Error("expected SDK tamper mismatch");
     expect(sdkTamper.error.kind).toBe("content_hash_mismatch");
+  });
+
+  test("frozen plan hash binds generation inputs (W6)", () => {
+    const sources = loadPlanSources("/no-such-repo-for-defaults");
+    if (!sources.ok) throw new Error("loadPlanSources failed");
+    const plan = compileExecutionPlan(sources.value);
+    const context = stubGenerationContextFromTask({
+      writes: [{ path: "src/lib/x.ts", content: "// x\n" }],
+    });
+    const inputs = buildGenerationInputs({
+      metadata: {
+        provider: "faux",
+        modelId: "light",
+        modelVersion: "0.74.0",
+        sdkVersions: { piAgentCore: "0.74.0", piAi: "0.74.0" },
+      },
+      prompt: "task",
+      context,
+      planHash: plan.planHash,
+    });
+    expect(inputs.planHash).toBe(plan.planHash);
+    expect(inputs.planHash).not.toBe(hashCanonicalJson({ phase: 1, kind: "skeleton" }));
   });
 });

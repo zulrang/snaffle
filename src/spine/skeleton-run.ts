@@ -1,14 +1,37 @@
 import { join } from "node:path";
 import { isScopeCompliant } from "../domain/agent";
+import type { FailureVerdict, RoutingAction } from "../domain/failure";
 import type { GateReport } from "../domain/gate";
 import { gatePassed } from "../domain/gate";
 import type { GateRunId, GenerationId, GrantId, InvocationId, TransitionId } from "../domain/ids";
 import type { Lineage } from "../domain/lineage";
 import { parseRepoPath } from "../domain/scope";
+import type { ContentHash } from "../domain/shared";
 import { err, ok, parseTimestamp, type Result, type Timestamp } from "../domain/shared";
 import type { LineageState, StateTransition } from "../domain/transition";
+import {
+  applyBudgetCheck,
+  type BudgetGovernorState,
+  checkBudget,
+  createBudgetGovernor,
+  recordTokenSpend,
+} from "../lib/budget-governor";
 import { issueCapabilityGrant } from "../lib/capability-grant";
+import { classifyAndRoute } from "../lib/failure-classifier";
+import {
+  initialRouterState,
+  type RouteFailureDecision,
+  routeFailureWithPolicy,
+} from "../lib/failure-router";
+import { loadOrchestratorConfig } from "../lib/orchestrator-config";
 import { acquireWriterLock, type WriterLock } from "../lib/ownership-lock";
+import {
+  assertPlanFresh,
+  type FrozenExecutionPlan,
+  freezePlanAt,
+  loadFrozenPlan,
+  loadPlanSources,
+} from "../lib/plan-freezer";
 import {
   openProvenanceStore,
   PROVENANCE_DB_DIR,
@@ -63,6 +86,8 @@ export type SkeletonRunError =
   | { readonly kind: "workspace_lock"; readonly detail: string }
   | { readonly kind: "worktree_prepare"; readonly detail: string }
   | { readonly kind: "pre_gate_blocked"; readonly detail: string }
+  | { readonly kind: "stale_plan"; readonly detail: string }
+  | { readonly kind: "budget_paused"; readonly detail: string }
   | { readonly kind: "agent_invoke"; readonly detail: string }
   | { readonly kind: "agent_result_invalid"; readonly detail: string }
   | { readonly kind: "provenance"; readonly detail: string }
@@ -89,6 +114,10 @@ export type SkeletonRunOutcome =
       readonly finalState: LineageState;
       readonly postGate: GateReport;
       readonly generationId: GenerationId;
+      readonly failureVerdict: FailureVerdict;
+      readonly routingAction: RoutingAction;
+      readonly routeDecision: RouteFailureDecision;
+      readonly frozenPlan: FrozenExecutionPlan;
     };
 
 const runningState = { status: "running" as const, phase: "implement" as const };
@@ -159,6 +188,52 @@ const releaseLock = async (lock: WriterLock | undefined): Promise<void> => {
   if (lock) await lock.release();
 };
 
+const ensureFrozenPlan = (repoRoot: string): Result<FrozenExecutionPlan, SkeletonRunError> => {
+  const sources = loadPlanSources(repoRoot);
+  if (!sources.ok) {
+    return err({ kind: "pre_gate_blocked", detail: sources.error.kind });
+  }
+
+  const existing = loadFrozenPlan(repoRoot);
+  if (!existing.ok) {
+    return err({ kind: "pre_gate_blocked", detail: existing.error.kind });
+  }
+
+  if (existing.value !== null) {
+    const fresh = assertPlanFresh(existing.value, sources.value);
+    if (!fresh.ok) {
+      return err({ kind: "stale_plan", detail: "config drift after plan freeze" });
+    }
+    return ok(existing.value);
+  }
+
+  const frozen = freezePlanAt(repoRoot);
+  if (!frozen.ok) {
+    return err({ kind: "pre_gate_blocked", detail: frozen.error.kind });
+  }
+  return ok(frozen.value);
+};
+
+const stepBudget = (
+  state: BudgetGovernorState,
+  repoRoot: string,
+  tokens: number,
+): Result<BudgetGovernorState, SkeletonRunError> => {
+  const config = loadOrchestratorConfig(repoRoot);
+  if (!config.ok) return ok(state);
+
+  let next = recordTokenSpend(state, tokens);
+  const check = checkBudget(next, config.value.budget);
+  if (check.kind === "kill") {
+    return err({ kind: "budget_paused", detail: check.limit });
+  }
+  next = applyBudgetCheck(next, config.value.budget);
+  if (next.paused) {
+    return err({ kind: "budget_paused", detail: next.pauseSource ?? "budget" });
+  }
+  return ok(next);
+};
+
 /** Run the Phase 1 walking skeleton for one lineage variant. */
 export const runSkeletonLineage = async (
   input: SkeletonRunInput,
@@ -174,6 +249,8 @@ export const runSkeletonLineage = async (
 
   let lock: WriterLock | undefined;
   let prepared: PreparedWorktreeGate | undefined;
+  let budgetState = createBudgetGovernor();
+  let frozenPlan: FrozenExecutionPlan | undefined;
 
   try {
     const locked = await acquireWriterLock(
@@ -185,6 +262,10 @@ export const runSkeletonLineage = async (
       return err({ kind: "workspace_lock", detail: locked.error.kind });
     }
     lock = locked.value;
+
+    const plan = ensureFrozenPlan(input.repoRoot);
+    if (!plan.ok) return err(plan.error);
+    frozenPlan = plan.value;
 
     const worktree = await prepareWorktreeGate(input.repoRoot);
     if (!worktree.ok) {
@@ -205,6 +286,10 @@ export const runSkeletonLineage = async (
     if (!pre.ok) {
       return err({ kind: "pre_gate_blocked", detail: pre.error.kind });
     }
+
+    const budgetAfterPre = stepBudget(budgetState, input.repoRoot, 0);
+    if (!budgetAfterPre.ok) return err(budgetAfterPre.error);
+    budgetState = budgetAfterPre.value;
 
     const grant = issueCapabilityGrant({
       grantId: input.ids.grantId,
@@ -236,10 +321,16 @@ export const runSkeletonLineage = async (
       scope: grant.value.scope,
       agentResult: invoked.value.agentResult,
       recordedAt: at.value,
+      planHash: frozenPlan.planHash as ContentHash,
     });
     if (!logged.ok) {
       return err({ kind: "provenance", detail: logged.error.kind });
     }
+
+    const tokens = invoked.value.metadata.usage?.totalTokens ?? 0;
+    const budgetAfterAgent = stepBudget(budgetState, input.repoRoot, tokens);
+    if (!budgetAfterAgent.ok) return err(budgetAfterAgent.error);
+    budgetState = budgetAfterAgent.value;
 
     if (input.variant === "scope_blocked") {
       const denied = invoked.value.scopeEvents.some((event) => event.kind === "write_denied");
@@ -337,11 +428,18 @@ export const runSkeletonLineage = async (
         });
       }
 
+      const classified = classifyAndRoute({ kind: "gate_report", report: postGate });
+      const routeDecision = routeFailureWithPolicy(classified.verdict, initialRouterState("light"));
+
       return ok({
         kind: "post_gate_rejected",
         finalState: reviewed.value.state,
         postGate,
         generationId: input.ids.generationId,
+        failureVerdict: classified.verdict,
+        routingAction: classified.action,
+        routeDecision,
+        frozenPlan,
       });
     }
 

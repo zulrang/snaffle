@@ -93,7 +93,11 @@ describe("Door & regime (D5, D25)", () => {
   });
 
   test("ambiguous defaults to one-way (conservative)", () => {
-    expect(classifyAmbiguousAsOneWay([]).direction).toBe("one_way");
+    expect(classifyAmbiguousAsOneWay([])).toEqual({
+      direction: "one_way",
+      triggers: [],
+      ambiguous: true,
+    });
   });
 });
 

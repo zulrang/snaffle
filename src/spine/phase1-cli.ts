@@ -13,6 +13,8 @@ import {
 import { freezeAcceptanceTarget, type Lineage, makeLineage } from "../domain/lineage";
 import { makeWriteScope, parseRepoPath } from "../domain/scope";
 import { err, ok, parseContentHash, parseTimestamp, type Result } from "../domain/shared";
+import { classifyDoor } from "../lib/door-classifier";
+import { loadOrchestratorConfig } from "../lib/orchestrator-config";
 import { type ActiveWriterClaim, attachObserver } from "../lib/ownership-lock";
 import {
   type GenerationSummary,
@@ -28,11 +30,10 @@ import {
   type SkeletonVariant,
 } from "./skeleton-run";
 
-/** Phase 1 default lineage for the walking-skeleton CLI (W8). */
-export const buildDefaultPhase1Lineage = (): Result<
-  Lineage,
-  { readonly kind: "invalid_default" }
-> => {
+/** Default walking-skeleton lineage; classifies door from repo config when repoRoot is set (W2/W9). */
+export const buildDefaultPhase1Lineage = (
+  repoRoot?: string,
+): Result<Lineage, { readonly kind: "invalid_default" }> => {
   const ts = parseTimestamp(1_700_000_000_000);
   if (!ts.ok) return err({ kind: "invalid_default" });
 
@@ -58,11 +59,17 @@ export const buildDefaultPhase1Lineage = (): Result<
     return err({ kind: "invalid_default" });
   }
 
+  const resolvedRoot = repoRoot === undefined ? undefined : resolve(repoRoot);
+  const orchestrator = resolvedRoot === undefined ? null : loadOrchestratorConfig(resolvedRoot);
+  const door = orchestrator?.ok
+    ? classifyDoor(scope.value, undefined, orchestrator.value.door)
+    : classifyTwoWay();
+
   return ok(
     makeLineage({
       lineageId: lineageId.value,
       requirementId: requirementId.value,
-      door: classifyTwoWay(),
+      door,
       acceptanceTarget: acceptanceTarget.value,
       declaredScope: scope.value,
       createdAt: ts.value,
@@ -115,7 +122,7 @@ export const runPhase1 = async (
   input: Phase1RunInput,
 ): Promise<Result<SkeletonRunOutcome, Phase1RunError>> => {
   const repoRoot = resolve(input.repoRoot);
-  const lineage = buildDefaultPhase1Lineage();
+  const lineage = buildDefaultPhase1Lineage(repoRoot);
   if (!lineage.ok) return err(lineage.error);
 
   const suffix = input.runSuffix ?? `${Date.now()}`;

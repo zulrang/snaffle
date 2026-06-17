@@ -1,6 +1,6 @@
-# Deterministic Agent Delivery Pipeline — Build Plan
+# Snaffle — Build Plan
 
-*Companion to the spec. Planning follows the spec's own doctrine: decompose along seams of uncertainty and risk (not file or org structure), retire the scariest unknowns first, give every work item a testable `done_when` rather than "implemented," estimate in bands, and decide cut lines up front. Each phase below is a unit to be planned in detail when reached; Phase 1 is planned in full here.*
+*Companion to the spec. **Snaffle** is the deterministic agent delivery pipeline — external spine, Pi agents, human escalation at decisions not diffs. Planning follows the spec's own doctrine: decompose along seams of uncertainty and risk (not file or org structure), retire the scariest unknowns first, give every work item a testable `done_when` rather than "implemented," estimate in bands, and decide cut lines up front. Each phase below is a unit to be planned in detail when reached; Phase 1 is planned in full here.*
 
 ---
 

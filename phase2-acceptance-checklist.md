@@ -1,6 +1,6 @@
-# Phase 2 Acceptance Checklist
+# Snaffle — Phase 2 Acceptance Checklist
 
-Adversarial acceptance for **Deterministic Gate Hardened + Repo Modes**. Run after `bun run check` and `npm run check:node` are green.
+Adversarial acceptance for **Phase 2: Deterministic Gate Hardened + Repo Modes**. Run after `bun run check` and `npm run check:node` are green.
 
 ## S0 — Node-compat floor (D17/D18)
 

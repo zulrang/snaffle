@@ -36,7 +36,7 @@ export interface StubGenerationContext {
   readonly agentResult?: StubGenerationAgentResult;
 }
 
-/** Phase 1 skeleton execution plan pin (D21 thin slice). */
+/** Phase 1 skeleton execution plan pin — superseded by W6 frozen plan when supplied. */
 export const PHASE1_SKELETON_PLAN = Object.freeze({ phase: 1, kind: "skeleton" as const });
 
 const mustHash = (raw: string): ContentHash => {
@@ -83,7 +83,8 @@ export const stubGenerationContextFromTask = (input: {
 export const computeContextHash = (context: StubGenerationContext): ContentHash =>
   hashCanonicalJson(context);
 
-export const computePlanHash = (): ContentHash => hashCanonicalJson(PHASE1_SKELETON_PLAN);
+export const computePlanHash = (planHash?: ContentHash): ContentHash =>
+  planHash ?? hashCanonicalJson(PHASE1_SKELETON_PLAN);
 
 export const modelRefFromStubMetadata = (metadata: StubInvocationMetadata): ModelRef => ({
   provider: metadata.provider,
@@ -104,11 +105,12 @@ export const buildGenerationInputs = (input: {
   readonly context: StubGenerationContext;
   readonly temperature?: number;
   readonly seed?: number;
+  readonly planHash?: ContentHash;
 }): GenerationInputs => ({
   model: modelRefFromStubMetadata(input.metadata),
   promptHash: computePromptHash(input.prompt),
   contextHash: computeContextHash(input.context),
-  planHash: computePlanHash(),
+  planHash: computePlanHash(input.planHash),
   temperature: input.temperature ?? 0,
   ...(input.seed === undefined ? {} : { seed: input.seed }),
   toolVersions: toolVersionsFromStubMetadata(input.metadata),

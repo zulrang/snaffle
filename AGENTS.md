@@ -1,6 +1,6 @@
-# Orchestrator Spine
+# Snaffle — Agent Context
 
-Gate before claiming done: `bun run check`
+Snaffle is a deterministic agent delivery pipeline: an external control-plane **spine** over Pi agents. Gate before claiming done: `bun run check`
 
 ## Entry Points
 
@@ -22,7 +22,7 @@ Gate before claiming done: `bun run check`
 - **Layer direction:** `domain/` → nothing. `lib/` → `domain/` only. `spine/`, `pi/`, `extensions/` → `lib/` + `domain/`. Never import Pi SDK or I/O into `domain/`.
 - **D12:** Gate, scope, lock, and classifier logic live once in `lib/`. Pi extensions and `beforeToolCall` hooks call `lib/` — do not reimplement rules in adapters.
 - **D6 / D19:** Write scope and capability grants are issued by the spine per invocation, never read from agent context. Agent results are evidence; only the control plane derives state transitions.
-- **Runtime:** Bun (`>= 1.3`), not Node. Pi packages are pinned at `@earendil-works/*@0.74.0` — do not bump without explicit intent.
+- **Runtime (D17):** Bun (`>= 1.3`) is the dev runtime; **Node (`>= 22`) is the ship target**. Use no Bun-native APIs in shipped code (`guard:bun-native` + `check:node` enforce this). Pi packages are pinned at `@earendil-works/*@0.74.0` — do not bump without explicit intent.
 - **Tests:** Pi integration tests use the **faux** provider (`registerFauxProvider`); they prove SDK shape, not live model calls. Real-model tests belong behind env-gated integration, not default CI.
 - **Types:** Prefer branded ids, `Result`, and smart constructors so illegal states do not typecheck (`tsconfig` is maximally strict).
 

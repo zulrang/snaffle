@@ -1,6 +1,6 @@
-# Deterministic Agent Delivery Pipeline — Spec
+# Snaffle — Spec
 
-*Working title. Status: draft. This document records what the system is, why it exists, and the decisions already made. Items still undecided are not recorded here; they are being resolved in conversation and will be folded in as they close.*
+*Product name: **Snaffle**. This document records what the system is, why it exists, and the decisions already made. Items still undecided are not recorded here; they are being resolved in conversation and will be folded in as they close.*
 
 ---
 

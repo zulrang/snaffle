@@ -1,7 +1,7 @@
 {
   "name": "@orchestrator/spine",
   "version": "0.0.0",
-  "description": "Deterministic agent delivery pipeline — the deterministic control plane (spine) that drives stochastic agents over the Pi harness.",
+  "description": "Snaffle — deterministic agent delivery pipeline. External control-plane spine that drives stochastic agents over Pi; models only where intent is irreducible.",
   "type": "module",
   "private": true,
   "license": "MIT",

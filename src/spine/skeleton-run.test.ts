@@ -16,6 +16,7 @@ import { freezeAcceptanceTarget, makeLineage } from "../domain/lineage";
 import { makeWriteScope, parseRepoPath } from "../domain/scope";
 import { parseContentHash, parseTimestamp } from "../domain/shared";
 import { OWNERSHIP_LOCK_DIR, OWNERSHIP_LOCK_FILE, readWriterClaim } from "../lib/ownership-lock";
+import { FROZEN_PLAN_REL } from "../lib/plan-freezer";
 import {
   openProvenanceStore,
   PROVENANCE_DB_DIR,
@@ -71,6 +72,10 @@ describe("W8 — end-to-end skeleton wiring", () => {
     const provenancePath = join(orchestratorDir, PROVENANCE_DB_FILE);
     if (existsSync(provenancePath)) {
       rmSync(provenancePath, { force: true });
+    }
+    const frozenPlanPath = join(repoRoot, FROZEN_PLAN_REL);
+    if (existsSync(frozenPlanPath)) {
+      rmSync(frozenPlanPath, { force: true });
     }
   });
 
@@ -139,6 +144,13 @@ describe("W8 — end-to-end skeleton wiring", () => {
     if (outcome.kind !== "post_gate_rejected") throw new Error("expected post_gate_rejected");
     expect(gatePassed(outcome.postGate)).toBe(false);
     expect(outcome.finalState).toEqual({ status: "running", phase: "implement" });
+    expect(outcome.failureVerdict.kind).toBe("classified");
+    if (outcome.failureVerdict.kind === "classified") {
+      expect(outcome.failureVerdict.category).toBe("model_capability");
+    }
+    expect(outcome.routingAction).toBe("escalate_one_tier");
+    expect(outcome.routeDecision.kind).toBe("route");
+    expect(outcome.frozenPlan.planHash).toBeDefined();
     expect(await readWriterClaim(repoRoot)).toBeNull();
   }, 60_000);
 });

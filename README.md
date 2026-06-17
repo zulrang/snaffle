@@ -1,24 +1,26 @@
-# Deterministic Agent Delivery Pipeline
+# Snaffle
 
-A deterministic control plane (the **spine**) that drives stochastic coding agents over the [Pi](https://pi.dev) harness, calling models only where intent or novel synthesis is genuinely irreducible. Determinism is the default; the LLM is a subroutine; the human is the escalation valve for ambiguity, not for catching errors a script could catch for free.
+**Snaffle** is a deterministic control plane (the **spine**) that drives stochastic coding agents over the [Pi](https://pi.dev) harness, calling models only where intent or novel synthesis is genuinely irreducible. Determinism is the default; the LLM is a subroutine; the human is the escalation valve for ambiguity, not for catching errors a script could catch for free.
 
 See [`deterministic-agent-delivery-pipeline-spec.md`](./deterministic-agent-delivery-pipeline-spec.md) for the full spec and [`deterministic-agent-delivery-pipeline-plan.md`](./deterministic-agent-delivery-pipeline-plan.md) for the build plan.
 
-> **Status:** Phase 1 (walking skeleton) — complete. W2–W8 are green; Phase 2+ next.
+> **Status:** Phase 2 (deterministic gate + repo modes) — complete. Phase 3 (classifiers, routing, budget, plan-freeze) — planned.
 
 ## Dependencies
 
 Pinned Pi packages (`0.74.0`, `@earendil-works` scope):
 
-| Package | Role |
-| --- | --- |
-| `@earendil-works/pi-agent-core` | Agent loop, `beforeToolCall` enforcement |
-| `@earendil-works/pi-ai` | Unified model API; faux provider for deterministic tests |
-| `@earendil-works/pi-coding-agent` | Pi extension API (`tool_call` gate) |
+
+| Package                           | Role                                                     |
+| --------------------------------- | -------------------------------------------------------- |
+| `@earendil-works/pi-agent-core`   | Agent loop, `beforeToolCall` enforcement                 |
+| `@earendil-works/pi-ai`           | Unified model API; faux provider for deterministic tests |
+| `@earendil-works/pi-coding-agent` | Pi extension API (`tool_call` gate)                      |
+
 
 ## Runtime & toolchain
 
-- **Runtime:** [Bun](https://bun.com) (`>= 1.3`). Bun runs TypeScript directly and is npm-compatible, so it sits natively alongside the npm-distributed Pi packages. (This refines the spec's D17 "Node" choice; the domain layer is runtime-agnostic regardless.)
+- **Runtime (D17):** [Bun](https://bun.com) (`>= 1.3`) is the dev runtime — fast installs, native TS, `bun test`. The shipped artifact targets **Node (`>= 22`)** and uses no Bun-native APIs, so it sits natively alongside the npm-distributed Pi packages; `check:node` runs the suite under Node so the dev runtime cannot harden into a ship dependency.
 - **Typechecker:** `tsc --noEmit` under a maximally strict `tsconfig` — illegal domain states should not typecheck.
 - **Lint/format:** [Biome](https://biomejs.dev).
 - **Tests:** Bun's built-in test runner.
@@ -32,14 +34,16 @@ bun run check    # typecheck + lint + test (the local gate)
 
 Individual scripts:
 
-| Script | What it does |
-| --- | --- |
-| `bun run typecheck` | `tsc --noEmit` |
-| `bun run test` | `bun test` |
-| `bun run lint` | `biome check .` |
-| `bun run lint:fix` | `biome check --write .` |
-| `bun run format` | `biome format --write .` |
-| `bun run check` | all three gates, in order |
+
+| Script              | What it does              |
+| ------------------- | ------------------------- |
+| `bun run typecheck` | `tsc --noEmit`            |
+| `bun run test`      | `bun test`                |
+| `bun run lint`      | `biome check .`           |
+| `bun run lint:fix`  | `biome check --write .`   |
+| `bun run format`    | `biome format --write .`  |
+| `bun run check`     | all three gates, in order |
+
 
 ## CI
 
@@ -127,7 +131,7 @@ Both paths share identical rules; tests prove in-scope writes succeed, out-of-sc
 
 - **Type-first / make illegal states unrepresentable.** Branded value objects (`RepoPath`, `ContentHash`, ids) are only constructed through validating smart constructors that return `Result`, so an invalid instance cannot exist. Derived facts (a lineage's regime) are computed, never stored, so they cannot disagree with their source.
 - **Determinism is testable in isolation.** Every domain decision — door → regime, failure → route, evidence → merge outcome — is a pure function with no model and no I/O, exercised directly by unit tests.
-- **The domain depends on nothing.** Infrastructure and the orchestrator depend on `src/domain`, never the reverse.
+- **The domain depends on nothing.** Snaffle's domain layer is pure; infrastructure and the spine depend on `src/domain`, never the reverse.
 
 ## License
 

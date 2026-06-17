@@ -1,6 +1,6 @@
-# Prompt caching (pi-ai + Pi harness)
+# Prompt caching (Snaffle spine + pi-ai)
 
-How the orchestrator spine sets cache hints, how Pi skills interact with the cached prefix, and how each provider layer realizes caching. See also `deterministic-agent-delivery-pipeline-spec.md` (D10 provenance, D18 defaults).
+How Snaffle's spine sets cache hints, how Pi skills interact with the cached prefix, and how each provider layer realizes caching. See also `deterministic-agent-delivery-pipeline-spec.md` (D10 provenance, D18 defaults).
 
 ## Spine cache hints (`pi-ai`)
 
