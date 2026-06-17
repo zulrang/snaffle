@@ -4,7 +4,7 @@ A deterministic control plane (the **spine**) that drives stochastic coding agen
 
 See [`deterministic-agent-delivery-pipeline-spec.md`](./deterministic-agent-delivery-pipeline-spec.md) for the full spec and [`deterministic-agent-delivery-pipeline-plan.md`](./deterministic-agent-delivery-pipeline-plan.md) for the build plan.
 
-> **Status:** Phase 1 (walking skeleton) — in progress. Domain model, Pi spikes (S1, S2), W2 ownership lock, and W3 capability grant wiring are green; W4–W8 come next.
+> **Status:** Phase 1 (walking skeleton) — in progress. Domain model, Pi spikes (S1, S2), W2–W4 are green; W5–W8 come next.
 
 ## Dependencies
 
@@ -59,9 +59,11 @@ src/
   lib/
     scope-guard.ts       Single copy of write-scope enforcement (D12) — shared by spine, Agent, extension
     capability-grant.ts  Per-invocation grant issuance (D6, W3)
+    validate-agent-result.ts  Agent result artifact validation (D14, W4)
     ownership-lock.ts    Single-writer workspace lock (D23) — writer fail-fast, observer attach, stale reclaim
   spine/
     scoped-invocation.ts W3: grant → beforeToolCall guard → scope events surfaced to orchestrator
+    stub-invocation.ts   W4: stub agent → validate result before control-plane inspection
   pi/
     invoke-stub-agent.ts   S1: headless stub invocation via pi-agent-core + faux model
   extensions/
@@ -94,6 +96,8 @@ Both paths share identical rules; tests prove in-scope writes succeed, out-of-sc
 - **Crash reclaim:** dead pid ⇒ stale lock removed via `reclaimStaleLock` (simulated with SIGKILL in tests)
 
 **W3 — Capability grant + path protection (D6).** `issueCapabilityGrant` in `lib/capability-grant.ts` issues per-invocation authority; `invokeWithCapabilityGrant` in `spine/scoped-invocation.ts` wires `grant.scope` through `createBeforeToolCallGuard` (never from agent context). Both in-scope successes and out-of-scope denials are surfaced as `ScopeEvent`s on the spine outcome.
+
+**W4 — Stub-agent invocation with validated results (D14).** `invokeValidatedStubAgent` in `spine/stub-invocation.ts` drives a single scoped edit via the stub agent and validates the returned artifact through `lib/validate-agent-result.ts` before exposing it as control-plane evidence. Malformed results are rejected and never acted on.
 
 ### Domain modelling principles
 
