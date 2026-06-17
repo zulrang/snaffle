@@ -73,6 +73,28 @@ describe("transition derivation — unit cases", () => {
     if (result.ok) throw new Error("expected missing post gate");
     expect(result.error.kind).toBe("missing_post_gate");
   });
+
+  test("requirePostGateEvidence rejects empty gate checks", () => {
+    const emptyPost: GateReport = {
+      gateRunId: must(GateRunId("gate-w6-empty")),
+      lineageId: must(LineageId("lineage-w6")),
+      phase: "post",
+      ranAt: ts,
+      checks: [],
+    };
+    const result = requirePostGateEvidence(evidence(agentResult("succeeded"), emptyPost));
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected empty gate checks");
+    expect(result.error.kind).toBe("empty_gate_checks");
+  });
+
+  test("applyControlPlaneTransition throws without POST gate evidence", () => {
+    expect(() =>
+      applyControlPlaneTransition(
+        applyInput(running, evidence(agentResult("succeeded"), gateReport("pre", false))),
+      ),
+    ).toThrow(/POST gate evidence/);
+  });
 });
 
 describe("W6 — control-plane transition derivation (D19)", () => {

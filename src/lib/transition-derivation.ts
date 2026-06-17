@@ -29,10 +29,9 @@ export interface TransitionEvidence {
   readonly grantedScope: WriteScope;
 }
 
-export type TransitionDerivationError = {
-  readonly kind: "missing_post_gate";
-  readonly phase: string;
-};
+export type TransitionDerivationError =
+  | { readonly kind: "missing_post_gate"; readonly phase: string }
+  | { readonly kind: "empty_gate_checks" };
 
 export type ApplyTransitionResult =
   | {
@@ -93,11 +92,21 @@ export const requirePostGateEvidence = (
   if (evidence.postGateReport.phase !== "post") {
     return err({ kind: "missing_post_gate", phase: evidence.postGateReport.phase });
   }
+  if (evidence.postGateReport.checks.length === 0) {
+    return err({ kind: "empty_gate_checks" });
+  }
   return ok(evidence);
 };
 
 /** Apply a control-plane-derived transition; holds leave state unchanged (W6). */
 export const applyControlPlaneTransition = (input: ApplyTransitionInput): ApplyTransitionResult => {
+  const validated = requirePostGateEvidence(input.evidence);
+  if (!validated.ok) {
+    throw new Error(
+      `applyControlPlaneTransition requires valid POST gate evidence: ${validated.error.kind}`,
+    );
+  }
+
   const outcome = deriveControlPlaneOutcome(input.evidence);
   const newState = nextLineageState(input.currentState, outcome);
 

@@ -62,9 +62,11 @@ export interface GateReport {
 
 export type GateOutcome = "green" | "red";
 
-/** Green iff no check failed; skipped checks do not fail the gate. */
-export const gateOutcome = (report: GateReport): GateOutcome =>
-  report.checks.some((check) => check.status === "failed") ? "red" : "green";
+/** Green iff at least one check ran and none failed; skipped checks do not fail the gate. */
+export const gateOutcome = (report: GateReport): GateOutcome => {
+  if (report.checks.length === 0) return "red";
+  return report.checks.some((check) => check.status === "failed") ? "red" : "green";
+};
 
 export const gatePassed = (report: GateReport): boolean => gateOutcome(report) === "green";
 

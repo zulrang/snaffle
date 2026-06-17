@@ -200,6 +200,18 @@ describe("Gate outcome (D8)", () => {
     expect(gateOutcome(report("passed", "skipped"))).toBe("green");
     expect(gateOutcome(report("passed", "failed"))).toBe("red");
   });
+
+  test("empty checks are red (fail closed)", () => {
+    expect(
+      gateOutcome({
+        gateRunId: must(GateRunId("gate-empty")),
+        lineageId: must(LineageId("l1")),
+        phase: "post",
+        ranAt: ts,
+        checks: [],
+      }),
+    ).toBe("red");
+  });
 });
 
 describe("Control-plane merge derivation (D19, W6)", () => {
