@@ -57,7 +57,8 @@ src/
     transition.ts    Control-plane-derived state transitions        (D19, §8)
     provenance.ts    Content-addressed generation records           (D10, D21)
   lib/
-    scope-guard.ts   Single copy of write-scope enforcement (D12) — shared by spine, Agent, extension
+    scope-guard.ts       Single copy of write-scope enforcement (D12) — shared by spine, Agent, extension
+    ownership-lock.ts    Single-writer workspace lock (D23) — writer fail-fast, observer attach, stale reclaim
   pi/
     invoke-stub-agent.ts   S1: headless stub invocation via pi-agent-core + faux model
   extensions/
@@ -78,6 +79,16 @@ src/
 2. **pi-agent-core** — `createBeforeToolCallGuard(scope)` for orchestrator-driven runs.
 
 Both paths share identical rules; tests prove in-scope writes succeed, out-of-scope writes are denied with an observable reason.
+
+## Phase 1 work items
+
+**W2 — Single-writer ownership lock (D23).** `acquireWriterLock` / `attachObserver` in `lib/ownership-lock.ts`:
+
+- **Writer:** exclusive lock at `{workspace}/.orchestrator/ownership.lock.json` recording `ownerId`, `pid`, `startedAt`
+- **Fail-fast:** a second writer gets `workspace_already_owned` while the pid is alive
+- **Observer:** `attachObserver` reads the live claim without taking the lock
+- **Release:** explicit `release()` and process exit/signal handlers on clean shutdown
+- **Crash reclaim:** dead pid ⇒ stale lock removed via `reclaimStaleLock` (simulated with SIGKILL in tests)
 
 ### Domain modelling principles
 
