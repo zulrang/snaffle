@@ -35,6 +35,11 @@ export interface BudgetLimits {
   readonly killSwitchTokens: number;
 }
 
+export interface HitlConfig {
+  /** Fraction of two-way merges enqueued for human sampling (0..1, D11). */
+  readonly twoWaySampleRate: number;
+}
+
 export interface TierTable {
   readonly light: ModelRef;
   readonly mid: ModelRef;
@@ -45,6 +50,7 @@ export interface OrchestratorConfig {
   readonly door: DoorTaxonomyConfig;
   readonly tiers: TierTable;
   readonly budget: BudgetLimits;
+  readonly hitl: HitlConfig;
 }
 
 export type OrchestratorConfigError =
@@ -247,10 +253,25 @@ const parseBudget = (raw: unknown): Result<BudgetLimits, OrchestratorConfigError
   });
 };
 
+const parseHitl = (raw: unknown): Result<HitlConfig, OrchestratorConfigError> => {
+  const defaults = defaultOrchestratorConfig().hitl;
+  if (raw === undefined) return ok(defaults);
+  if (typeof raw !== "object" || raw === null) {
+    return err({ kind: "invalid_gate_toml", detail: "[hitl] must be a table" });
+  }
+  const rate = (raw as { two_way_sample_rate?: unknown }).two_way_sample_rate;
+  if (rate === undefined) return ok(defaults);
+  if (typeof rate !== "number" || rate < 0 || rate > 1) {
+    return err({ kind: "invalid_gate_toml", detail: "[hitl].two_way_sample_rate must be 0..1" });
+  }
+  return ok({ twoWaySampleRate: rate });
+};
+
 interface OrchestratorTomlSections {
   readonly door?: unknown;
   readonly tiers?: unknown;
   readonly budget?: unknown;
+  readonly hitl?: unknown;
 }
 
 export const defaultOrchestratorConfig = (): OrchestratorConfig => ({
@@ -266,6 +287,7 @@ export const defaultOrchestratorConfig = (): OrchestratorConfig => ({
     perChangeTokens: 50_000,
     killSwitchTokens: 500_000,
   },
+  hitl: { twoWaySampleRate: 0 },
 });
 
 /** Parse orchestrator sections from gate.toml text — fail-closed, no partial config. */
@@ -312,10 +334,14 @@ export const parseOrchestratorToml = (
   const budget = parseBudget(parsed.budget);
   if (!budget.ok) return budget;
 
+  const hitl = parseHitl(parsed.hitl);
+  if (!hitl.ok) return hitl;
+
   return ok({
     door: { pathPatterns: pathPatterns.value, tagPatterns: tagPatterns.value },
     tiers: tiers.value,
     budget: budget.value,
+    hitl: hitl.value,
   });
 };
 
