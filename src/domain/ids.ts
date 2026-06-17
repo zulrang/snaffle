@@ -45,3 +45,11 @@ export const GenerationId = idConstructor("GenerationId");
 /** An isolated worktree a lineage executes in (D20/D23). */
 export type WorktreeId = Brand<string, "WorktreeId">;
 export const WorktreeId = idConstructor("WorktreeId");
+
+/** One batched human decision item in the HITL queue (D11). */
+export type DecisionId = Brand<string, "DecisionId">;
+export const DecisionId = idConstructor("DecisionId");
+
+/** A batch of related human decisions surfaced together (D11). */
+export type BatchId = Brand<string, "BatchId">;
+export const BatchId = idConstructor("BatchId");

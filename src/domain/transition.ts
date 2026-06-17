@@ -26,7 +26,11 @@ export const PIPELINE_PHASES = [
 
 export type PipelinePhase = (typeof PIPELINE_PHASES)[number];
 
-export type RejectReason = "scope_violation" | "oracle_tampering" | "agent_failed";
+export type RejectReason =
+  | "scope_violation"
+  | "oracle_tampering"
+  | "agent_failed"
+  | "human_rejected";
 export type HoldReason = "post_gate_red" | "agent_refused";
 
 /** The lifecycle state of a lineage. Closure is a positive decision (D20). */

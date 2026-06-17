@@ -25,18 +25,17 @@ interface DecisionItem {
   decided: boolean;
 }
 
-// W5 finding: domain `RejectReason` has no human-rejection variant yet, so the
-// spike uses a local resume-outcome type; W5 must add one (e.g. "human_rejected").
+// W5 uses domain `human_rejected` (added in W2).
 type ResumeOutcome =
   | { readonly status: "merged" }
-  | { readonly status: "rejected" }
+  | { readonly status: "rejected"; readonly reason: "human_rejected" }
   | { readonly status: "unchanged"; readonly state: LineageState };
 
-// CONTROL-PLANE resolver: the queue only stores; the transition is derived here,
-// never by the queue itself (D19). Only a parked lineage resolves.
 const resolveHumanDecision = (state: LineageState, decision: Decision): ResumeOutcome => {
   if (state.status !== "awaiting_human") return { status: "unchanged", state };
-  return decision === "approve" ? { status: "merged" } : { status: "rejected" };
+  return decision === "approve"
+    ? { status: "merged" }
+    : { status: "rejected", reason: "human_rejected" };
 };
 
 class DecisionQueue {
@@ -84,6 +83,7 @@ describe("P5/S3 — decision queue + resume", () => {
     q.enqueue("L1", oneWay);
     const next = q.record("L1", parked, "reject");
     expect(next.status).toBe("rejected");
+    if (next.status === "rejected") expect(next.reason).toBe("human_rejected");
   });
 
   test("pending count is independent of any single lineage's closure", () => {
