@@ -314,3 +314,84 @@ Four spikes (three M concurrency/queue, one S adapter) plus roughly three S and 
 S1 → W4 ; S2 → W3 → W4 ; W2 → W3 + W5 ; W1 ‖ (independent) ; S3 → W5 → W6 ; S4 → W7 | W4 + W5 → W9 ; W8 → W9 ; W10 last. (W7 live integration and the W4 affinity tiebreak are cut-line.)
 
 **Status: complete** (spikes S1–S4 + work items W1–W10 shipped; W7 live GitHub deferred per cut line 2). `bun run check` and `npm run check:node` green (270 tests); acceptance in `phase5-acceptance-checklist.md`. Bounded-N batch scheduling, durable HITL queue + two-way sampling, and acceptance snapshots are wired into the spine; the default CLI drives the regime pipeline.
+
+---
+
+## 7. Phase 6 — Stateful Changes, Rollout, Governance, Escapes (detailed)
+
+Realizes spec **D8 (post-launch)**, **D9**, **D10 (spans)**, **D15**, and **D24**. Absorbs deferred cut lines: durable budget ledger (Phase 3), `spec_traceability` / `smoke_budget` gate stages (Phase 2), and live metrics/GitHub adapters where offline/injected clients suffice.
+
+**Goal.** Make irreversible changes safe by construction and long-loop acceptance observable. Stateful lineages (door signals touching persisted schema or public contracts) emit expand/contract choreography — expand → dual-write/read → backfill → flip → contract — as deterministic phase artifacts the gate validates per step, never as a single revert. Post-merge, arm a post-launch metric gate behind a feature flag with an automated guardrail that rolls the flag back on threshold breach (human owns the ramp). Instrument oracle escapes when downstream surfaces catch a green-gate miss (HITL rejection, two-way sample, metric breach); cluster escapes by missed criterion to drive fixes at criteria/test-author, not downstream patches. Add span-level observability so every gate PRE/POST is attributable to exactly one lineage/batch. Ship an optional governance policy pack compiled into the execution plan, backstopped by an AST/lint guardrail that flags name-branching regressions in control-plane code. *Without* a stochastic grader in the acceptance path (D24 deferred). Tests stay offline: injected metric/flag clients, faux agents, dry-run rollout — no live traffic or vendor dashboards in CI.
+
+**Why this shape.** Phase 5 proved bounded throughput and O(decisions) human review; the remaining bets are *irreversibility* and *silent wrongness*. The scariest are (1) does expand/contract actually prevent naive rollback on stateful changes, and (2) does the post-launch guardrail fail closed without polluting the pre-merge gate. Oracle escapes are the feedback loop that keeps deterministic acceptance honest without reintroducing an LLM grader — instrument first, fix criteria at the cause. Spans and governance are lower-risk assembly once expand/contract and the metric boundary are proven. Front-load S1/S2 (expand/contract plan validity, metric guardrail contract); S3/S4 (escape log, span promotion) parallelize with W1–W3.
+
+**Current-state anchors.**
+- Pre-merge gate is complete and authoritative: multi-stage PRE/POST same path (`src/lib/gate-runner.ts`), contract-diff baseline (`src/lib/contract-diff.ts`), wrap/greenfield modes (Phase 2).
+- Door taxonomy already includes `persisted_schema` as a one-way trigger (`src/domain/door.ts`); classifier is config-driven (Phase 3) — **no expand/contract emitter yet**.
+- Full regime runs spec → plan → oracle → implement → validate → await-human (Phase 4); batch + queue + sampling wired (Phase 5).
+- Acceptance snapshots frozen on entry (`src/lib/acceptance-snapshot.ts`); closure is a positive decision via the queue (Phase 5).
+- `GateRunTrace` hook exists on the gate runner (`onTrace` in `gate-runner.ts`) — **not persisted or lineage-scoped yet**.
+- Provenance + decision queues are SQLite (`provenance-store.ts`, `decision-queue.ts`); **no oracle-escape schema**.
+- Budget governor is in-memory only (Phase 3 cut line) — durable ledger still missing.
+- PR adapter is dry-run/injected (`src/lib/pr-adapter.ts`); live `gh`/metrics adapters remain cut-line.
+- **Missing:** expand/contract emitter + pipeline phases, post-launch metric gate + flag guardrail, oracle-escape logger + cluster report, durable span store, governance policy pack loader, name-branching lint guardrail, rollout CLI.
+
+### Spikes (retire uncertainty first; throwaway-ish code)
+
+**S1 — Expand/contract plan from stateful door signals.** (M) Given a lineage whose door/scope triggers `persisted_schema` or touches a captured public contract surface, emit an ordered multi-phase plan (expand → dual-write → backfill → flip → contract) with per-phase acceptance criteria and artifact paths — no LLM, pure `lib/`. *done_when:* fixtures for a schema-touching scope produce a stable, content-addressed plan; reordering or skipping phases is refused; a non-stateful two-way scope yields no expand/contract plan (empty/no-op).
+
+**S2 — Post-launch metric guardrail boundary.** (M) An injected metrics/flags client arms a flag after merge, polls a configured metric, and auto-disables the flag on threshold breach; failures degrade to logged queue items, never faking green. *done_when:* dry-run client receives arm/poll/rollback calls with lineage + flag ids; a simulated breach triggers rollback exactly once; a healthy metric leaves the flag armed; no live network in the spike test.
+
+**S3 — Oracle escape record + query.** (S) Durable store for escapes: `{ lineageId, missedCriterion, source: hitl | sample | metric, at }`; idempotent per (lineage, source). *done_when:* recording an escape is queryable by lineage; duplicate record for the same source is idempotent; a cluster query groups by criterion id and returns counts.
+
+**S4 — Gate span promotion.** (S) Extend `GateRunTrace` into lineage/batch-scoped spans with PRE/POST pairing and red attribution. *done_when:* a test drives PRE+POST for one lineage and asserts two linked spans with the same `gateRunId`/`lineageId`, parent batch id when present, and the failing stage name on red.
+
+### Work items
+
+**W1 — Stateful change detector (D9).** (S; S1) `detectStatefulChange(scope, door, contractSurface?) → StatefulChangeKind` — pure classifier over declared scope + door triggers + optional contract baseline diff; the sole entry point for expand/contract. *done_when:* `persisted_schema` paths and contract-surface touches classify as stateful; pure code/doc changes do not; ambiguous scope → stateful (conservative).
+
+**W2 — Expand/contract emitter (D9).** (L; S1, W1) `emitExpandContractPlan(input) → ExpandContractPlan` with hashed phases, artifact paths, and frozen criteria per phase; plans persisted under `.orchestrator/`. *done_when:* identical inputs hash identically; each phase has a `done_when` criterion; tampering with a stored plan is detected on reload.
+
+**W3 — Expand/contract pipeline phases (D9, D25).** (M; W2, Phase-4 runner) Insert expand/contract phases into the **full** regime when W1 detects stateful change; minimal two-way regime unchanged. Each phase runs gate checks against phase artifacts before advancing. *done_when:* a stateful one-way integration test runs expand → … → contract before implement; a non-stateful one-way run skips them; phase failure routes via Phase-3 classifier, never merge.
+
+**W4 — Post-launch metric gate config (D8).** (M; S2) Extend orchestrator config with `[rollout]` section: flag name, metric query/ref, threshold, poll interval, rollback command (all injected/offline in tests). Compiled into the execution plan (D21). *done_when:* valid TOML parses; missing section → rollout disabled; invalid threshold returns typed error.
+
+**W5 — Rollout guardrail runner (D8).** (M; W4, S2) After control-plane merge, arm flag via injected client, poll metric, auto-rollback on breach, enqueue operator decision on sustained red. Never blocks pre-merge gate. *done_when:* integration test with fake client: arm after merge, healthy metric stays armed, breach rolls back once and logs escape; human ramp step is observable in CLI output.
+
+**W6 — Oracle-escape logger (D24).** (M; S3) SQLite store + `recordOracleEscape` / `listEscapes` / `clusterByCriterion`; wired from HITL reject, two-way sample reject, and metric rollback (W5). *done_when:* each source produces one idempotent record; cluster query returns sorted counts; escapes never mutate lineage state directly.
+
+**W7 — Escape cluster report CLI (D24).** (S; W6) `orchestrator escapes list | report` — surfaces clusters to drive criteria/test-author fixes. *done_when:* CLI prints grouped counts; empty store is not an error; report includes lineage ids per cluster.
+
+**W8 — Span store + gate wiring (D10).** (M; S4) Persist gate spans (lineage, batch, gateRunId, phase, stage, outcome, duration) to SQLite; wire `onTrace` + completion hooks from `gate-runner` and batch runner. *done_when:* PRE/POST spans for one lineage are queryable; a batch attributes spans to distinct lineages; red span names the failing stage.
+
+**W9 — Governance policy pack loader (D15).** (M) Optional `[governance]` TOML (or separate pack file) compiled into the execution plan: allowed door overrides, required reviewers, stage allowlists. Default empty/disabled. *done_when:* absent pack → no-op; present pack → typed policy object; drift after freeze refused (reuse plan-freezer).
+
+**W10 — Name-branching guardrail (D15).** (M; W9) CI script or Biome rule flagging control-plane string literals matching known stage/work-family names or path-substring compares in `src/lib/` and `src/spine/` (not in config fixtures). *done_when:* a fixture file with a banned literal fails the guard; clean tree passes; rule docs cite D15.
+
+**W11 — Durable budget ledger (D22; Phase-3 deferral).** (S) Optional SQLite persistence for budget counters keyed by workspace + window; in-memory remains default when disabled. *done_when:* counters survive process restart when enabled; kill-switch still trips in a test; operator pause source unchanged.
+
+**W12 — Spine rollout integration loop (W3–W8).** (M) Compose stateful expand/contract path + post-merge rollout guardrail + escape logging + spans under one writer lock. *done_when:* integration test drives a stateful one-way lineage through expand/contract → await-human → approve → merge → armed flag; simulated metric breach rolls back and records an escape; spans attribute PRE/POST reds to that lineage.
+
+**W13 — Phase 6 acceptance + checklist.** (S; W1–W12) Adversarial AC mirroring Phases 2–5; CI green under Node. *done_when:* `phase6-acceptance-checklist.md` exists; `bun run check` and `npm run check:node` green; ≥1 test per spike S1–S4 and work items W1–W12.
+
+### Cut lines (shed in this order if time runs short)
+
+1. **Live metrics/flags vendor integration (W5)** — keep injected client + local queue; defer Datadog/LaunchDarkly/etc. adapters.
+2. **Durable budget ledger (W11)** — keep in-memory governor; third deferral is acceptable for OSS v1.
+3. **`spec_traceability` / `smoke_budget` gate stages** — keep existing stages; add only if a Phase-6 work item is already green and time remains.
+4. **Governance pack richness (W9)** — keep skeleton pack + W10 lint guardrail; defer full SR 11-7 policy surfaces.
+5. **Expand/contract phase granularity (W3)** — collapse to expand+contract two-step for v1 if full five-step choreography slips; integrity (no single-step revert on stateful) is not cuttable.
+
+**Non-cuttable integrity floor (D8/D9/D24/D25):** pre-merge gate remains the sole merge blocker — post-launch metrics never fake or override POST-gate red; stateful changes never ship as a single revert (expand/contract or hold); oracle escapes are logged, never silently patched downstream; spans attribute reds to exactly one lineage change; governance behavior dispatches only through compiled config/plan interfaces (D15); Phases 1–5 integrity floor (lock, scope, oracle-freeze, control-plane transitions, queue closure, snapshots) is unchanged.
+
+### Exit criteria
+
+W12/W13 green in CI under Node; S1–S4 each demonstrated by a passing test; a stateful one-way lineage runs expand/contract phases before implement; post-merge rollout arms a flag and auto-rolls back on injected metric breach; escapes cluster by criterion; gate spans link PRE/POST to a lineage; governance pack loads optionally and the name-branching guard passes on clean tree. At that point irreversible-change safety and long-loop acceptance are bounded, and production hardening (live adapters, grader re-evaluation per D24) can proceed from measured escape data.
+
+### Estimate
+
+Four spikes (two M rollout/stateful, two S escape/spans) plus roughly four S and eight M/L work items. Cost is dominated by expand/contract emitter + pipeline insertion (S1/W2/W3) and the post-launch guardrail contract (S2/W4/W5) — not the escape CLI, span store, or governance loader.
+
+### Dependency order
+
+S1 → W1 → W2 → W3 ; S2 → W4 → W5 ; S3 → W6 → W7 ; S4 → W8 ; W9 → W10 | W3 + W5 + W8 → W12 ; W11 ‖ (optional) ; W13 last. (Live vendor adapters, full governance pack, and extra gate stages are cut-line.)
