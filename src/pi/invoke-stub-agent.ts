@@ -14,6 +14,7 @@ import type { AgentOutcome, AgentResult, FileEdit } from "../domain/agent";
 import type { InvocationId } from "../domain/ids";
 import { parseRepoPath, type RepoPath, type WriteScope } from "../domain/scope";
 import { err, ok, type Result } from "../domain/shared";
+import type { OracleFreezeRecord } from "../lib/oracle-freeze";
 import type { ModelRef } from "../lib/orchestrator-config";
 import { checkMutationAllowed, createBeforeToolCallGuard } from "../lib/scope-guard";
 import { createCachedStreamFn, type PromptCacheHint } from "./prompt-cache";
@@ -87,6 +88,18 @@ export interface StubInvocationOptions {
    * pinned faux stub model, so a config swap changes provenance without code change.
    */
   readonly modelRef?: ModelRef;
+  /**
+   * Assembled stable-prefix system prompt (D26, Phase 4). When set, it replaces the
+   * default stub system prompt — this is how composed role/skill doctrine reaches the
+   * agent. Must carry no volatile data (scope/ids travel out-of-band, D6/D26).
+   */
+  readonly systemPrompt?: string;
+  /**
+   * Frozen oracle handed to the implementer read-only (D7). When set, a write to any
+   * frozen-test path is blocked by the same guard that enforces scope, so the gradee
+   * cannot edit its grader.
+   */
+  readonly oracleFreeze?: OracleFreezeRecord;
   /**
    * Reuse an existing faux registration so prompt-cache state survives across
    * invocations (tests and spine session reuse). When omitted, a registration is
@@ -191,13 +204,14 @@ const runStubAgent = async (
     const edits: FileEdit[] = [];
     const scopeDenials: ScopeDenialEvent[] = [];
     const scopeGuard = options.scope
-      ? createBeforeToolCallGuard(options.scope, options.workspaceRoot)
+      ? createBeforeToolCallGuard(options.scope, options.workspaceRoot, options.oracleFreeze)
       : undefined;
     const streamFn = options.promptCache ? createCachedStreamFn(options.promptCache) : streamSimple;
 
     const agent = new Agent({
       initialState: {
-        systemPrompt: "You are a deterministic stub agent for the orchestrator spine.",
+        systemPrompt:
+          options.systemPrompt ?? "You are a deterministic stub agent for the orchestrator spine.",
         model,
         thinkingLevel: "off",
         tools: [
