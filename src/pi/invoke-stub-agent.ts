@@ -14,6 +14,7 @@ import type { AgentOutcome, AgentResult, FileEdit } from "../domain/agent";
 import type { InvocationId } from "../domain/ids";
 import { parseRepoPath, type RepoPath, type WriteScope } from "../domain/scope";
 import { err, ok, type Result } from "../domain/shared";
+import type { ModelRef } from "../lib/orchestrator-config";
 import { checkMutationAllowed, createBeforeToolCallGuard } from "../lib/scope-guard";
 import { createCachedStreamFn, type PromptCacheHint } from "./prompt-cache";
 
@@ -80,6 +81,12 @@ export interface StubInvocationOptions {
   readonly onWriteAllowed?: (path: RepoPath, toolName: string) => void;
   /** pi-ai prompt cache hint forwarded through streamSimple / agent sessionId. */
   readonly promptCache?: PromptCacheHint;
+  /**
+   * Config-resolved tier model (D18, W7). The faux provider still drives execution;
+   * when set, the recorded metadata reflects this provider-neutral ref instead of the
+   * pinned faux stub model, so a config swap changes provenance without code change.
+   */
+  readonly modelRef?: ModelRef;
   /**
    * Reuse an existing faux registration so prompt-cache state survives across
    * invocations (tests and spine session reuse). When omitted, a registration is
@@ -263,9 +270,9 @@ const runStubAgent = async (
       status,
       edits: evidenceEdits,
       metadata: {
-        provider: model.provider,
-        modelId: model.id,
-        modelVersion: STUB_MODEL_VERSION,
+        provider: options.modelRef?.provider ?? model.provider,
+        modelId: options.modelRef?.model ?? model.id,
+        modelVersion: options.modelRef?.version ?? STUB_MODEL_VERSION,
         sdkVersions: {
           piAgentCore: PI_AGENT_CORE_VERSION,
           piAi: PI_AI_VERSION,

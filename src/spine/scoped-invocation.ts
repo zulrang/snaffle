@@ -5,6 +5,7 @@ import { parseRepoPath } from "../domain/scope";
 import type { Result } from "../domain/shared";
 import { err, ok } from "../domain/shared";
 import { grantMatchesInvocation } from "../lib/capability-grant";
+import type { ModelRef } from "../lib/orchestrator-config";
 import {
   invokeStubAgentSequence,
   type StubInvocationError,
@@ -42,6 +43,8 @@ export interface ScopedWriteAttempt {
 export interface ScopedInvocationOptions {
   /** When set, symlink hops are resolved before scope checks (D6 filesystem vectors). */
   readonly workspaceRoot?: string;
+  /** Config-resolved tier model recorded in provenance (D18, W7). */
+  readonly modelRef?: ModelRef;
 }
 
 export interface ScopedInvocationTask {
@@ -93,6 +96,7 @@ export const invokeWithCapabilityGrant = async (
     {
       scope: grant.scope,
       ...(options.workspaceRoot === undefined ? {} : { workspaceRoot: options.workspaceRoot }),
+      ...(options.modelRef === undefined ? {} : { modelRef: options.modelRef }),
       onScopeDenial: (denial, toolName) => {
         scopeEvents.push({
           kind: "write_denied",

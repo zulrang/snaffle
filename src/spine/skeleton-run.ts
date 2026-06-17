@@ -38,6 +38,7 @@ import {
   PROVENANCE_DB_FILE,
 } from "../lib/provenance-store";
 import { skeletonGateConfig, writePassingGateFixture } from "../lib/skeleton-gate-fixture";
+import { type ModelTier, resolveModelTier } from "../lib/tier-router";
 import { applyScopeRefusalHold } from "../lib/transition-derivation";
 import { validateAgentResult } from "../lib/validate-agent-result";
 import { applyWritesToWorktree } from "../lib/worktree-writes";
@@ -80,6 +81,8 @@ export interface SkeletonRunInput {
   readonly ids: SkeletonRunIds;
   readonly ownerId?: string;
   readonly at?: Timestamp;
+  /** Starting model tier resolved from config (D18, W7); defaults to light. */
+  readonly tier?: ModelTier;
 }
 
 export type SkeletonRunError =
@@ -214,7 +217,14 @@ const ensureFrozenPlan = (repoRoot: string): Result<FrozenExecutionPlan, Skeleto
   return ok(frozen.value);
 };
 
-const stepBudget = (
+/** Resolve the model tier ref from repo config (D18, W7); undefined falls back to the faux stub. */
+const resolveTierModel = (repoRoot: string, tier: ModelTier) => {
+  const config = loadOrchestratorConfig(repoRoot);
+  return config.ok ? resolveModelTier(tier, config.value) : undefined;
+};
+
+/** Evaluate the budget circuit breaker between spine steps (D22, W8/W9). Exported for AC coverage. */
+export const stepBudget = (
   state: BudgetGovernorState,
   repoRoot: string,
   tokens: number,
@@ -302,11 +312,16 @@ export const runSkeletonLineage = async (
       return err({ kind: "agent_invoke", detail: grant.error.kind });
     }
 
-    const invoked = await invokeWithCapabilityGrant(grant.value, {
-      invocationId: input.ids.invocationId,
-      prompt: task.prompt,
-      writes: task.writes,
-    });
+    const modelRef = resolveTierModel(input.repoRoot, input.tier ?? "light");
+    const invoked = await invokeWithCapabilityGrant(
+      grant.value,
+      {
+        invocationId: input.ids.invocationId,
+        prompt: task.prompt,
+        writes: task.writes,
+      },
+      modelRef === undefined ? {} : { modelRef },
+    );
     if (!invoked.ok) {
       return err({ kind: "agent_invoke", detail: invoked.error.kind });
     }
