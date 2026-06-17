@@ -46,6 +46,11 @@ describe("RepoPath", () => {
     expect(path("./src/./domain/")).toBe("src/domain" as RepoPath);
   });
 
+  test("folds segment case on darwin", () => {
+    if (process.platform !== "darwin") return;
+    expect(path("SRC/DOMAIN/gate.ts")).toBe("src/domain/gate.ts" as RepoPath);
+  });
+
   test("rejects parent-escape and absolute paths", () => {
     expect(parseRepoPath("../etc/passwd").ok).toBe(false);
     expect(parseRepoPath("/abs/path").ok).toBe(false);

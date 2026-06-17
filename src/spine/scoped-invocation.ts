@@ -39,6 +39,11 @@ export interface ScopedWriteAttempt {
   readonly content: string;
 }
 
+export interface ScopedInvocationOptions {
+  /** When set, symlink hops are resolved before scope checks (D6 filesystem vectors). */
+  readonly workspaceRoot?: string;
+}
+
 export interface ScopedInvocationTask {
   readonly invocationId: InvocationId;
   readonly prompt: string;
@@ -67,6 +72,7 @@ export type ScopedInvocationError =
 export const invokeWithCapabilityGrant = async (
   grant: CapabilityGrant,
   task: ScopedInvocationTask,
+  options: ScopedInvocationOptions = {},
 ): Promise<Result<ScopedInvocationOutcome, ScopedInvocationError>> => {
   if (!grantMatchesInvocation(grant, task.invocationId)) {
     return err({
@@ -86,6 +92,7 @@ export const invokeWithCapabilityGrant = async (
     },
     {
       scope: grant.scope,
+      ...(options.workspaceRoot === undefined ? {} : { workspaceRoot: options.workspaceRoot }),
       onScopeDenial: (denial, toolName) => {
         scopeEvents.push({
           kind: "write_denied",

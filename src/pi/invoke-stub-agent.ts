@@ -74,6 +74,8 @@ export interface ScopeDenialEvent {
 
 export interface StubInvocationOptions {
   readonly scope?: WriteScope;
+  /** When set, symlink hops are resolved before scope checks (D6 filesystem vectors). */
+  readonly workspaceRoot?: string;
   readonly onScopeDenial?: (denial: ScopeDenialEvent, toolName: string) => void;
   readonly onWriteAllowed?: (path: RepoPath, toolName: string) => void;
   /** pi-ai prompt cache hint forwarded through streamSimple / agent sessionId. */
@@ -122,6 +124,7 @@ const createScopedWriteTool = (
   edits: FileEdit[],
   totalWrites: number,
   scope: WriteScope | undefined,
+  workspaceRoot: string | undefined,
   onWriteAllowed?: (path: RepoPath, toolName: string) => void,
 ): AgentTool<typeof writeSchema> => ({
   name: "scoped_write",
@@ -134,7 +137,7 @@ const createScopedWriteTool = (
     if (!parsed.ok) throw new Error(parsed.error.kind);
 
     if (scope) {
-      const denial = checkMutationAllowed(scope, "scoped_write", params.path);
+      const denial = checkMutationAllowed(scope, "scoped_write", params.path, workspaceRoot);
       if (denial) throw new Error(denial.reason);
     }
 
@@ -165,13 +168,6 @@ const runStubAgent = async (
     return err({ kind: "invalid_target_path", detail: "no writes requested" });
   }
 
-  for (const write of writes) {
-    const target = parseRepoPath(write.path);
-    if (!target.ok) {
-      return err({ kind: "invalid_target_path", detail: write.path });
-    }
-  }
-
   const faux = options.fauxRegistration ?? createDefaultFauxRegistration();
   const ownsFaux = options.fauxRegistration === undefined;
 
@@ -187,7 +183,9 @@ const runStubAgent = async (
 
     const edits: FileEdit[] = [];
     const scopeDenials: ScopeDenialEvent[] = [];
-    const scopeGuard = options.scope ? createBeforeToolCallGuard(options.scope) : undefined;
+    const scopeGuard = options.scope
+      ? createBeforeToolCallGuard(options.scope, options.workspaceRoot)
+      : undefined;
     const streamFn = options.promptCache ? createCachedStreamFn(options.promptCache) : streamSimple;
 
     const agent = new Agent({
@@ -195,7 +193,15 @@ const runStubAgent = async (
         systemPrompt: "You are a deterministic stub agent for the orchestrator spine.",
         model,
         thinkingLevel: "off",
-        tools: [createScopedWriteTool(edits, writes.length, options.scope, options.onWriteAllowed)],
+        tools: [
+          createScopedWriteTool(
+            edits,
+            writes.length,
+            options.scope,
+            options.workspaceRoot,
+            options.onWriteAllowed,
+          ),
+        ],
       },
       streamFn,
       toolExecution: "sequential",

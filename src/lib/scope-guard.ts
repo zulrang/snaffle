@@ -1,6 +1,9 @@
+import { lstatSync, realpathSync } from "node:fs";
+import { relative, resolve, sep } from "node:path";
 import type { BeforeToolCallContext, BeforeToolCallResult } from "@earendil-works/pi-agent-core";
 import type { ToolCallEvent, ToolCallEventResult } from "@earendil-works/pi-coding-agent";
-import { parseRepoPath, pathWithinScope, type WriteScope } from "../domain/scope";
+import { parseRepoPath, pathWithinScope, type RepoPath, type WriteScope } from "../domain/scope";
+import { err, ok, type Result } from "../domain/shared";
 
 /**
  * Deterministic write-scope enforcement (D6, D12).
@@ -37,11 +40,56 @@ export const extractWritePath = (toolName: string, args: unknown): string | unde
   return typeof path === "string" ? path : undefined;
 };
 
+const isInsideRoot = (rootReal: string, candidateReal: string): boolean => {
+  const rel = relative(rootReal, candidateReal);
+  return rel === "" || (!rel.startsWith("..") && !rel.startsWith(`..${sep}`));
+};
+
+/**
+ * Walk a repo-relative path on disk, following symlink hops. Returns the
+ * canonical repo-relative target used for scope checks after normalization.
+ */
+export const resolveRepoPathInWorkspace = (
+  workspaceRoot: string,
+  repoPath: RepoPath,
+): Result<RepoPath, { readonly kind: "escapes_workspace" }> => {
+  const rootReal = realpathSync(workspaceRoot);
+  let current = rootReal;
+
+  for (const segment of repoPath.split("/")) {
+    current = resolve(current, segment);
+    try {
+      const stat = lstatSync(current);
+      if (stat.isSymbolicLink()) {
+        current = realpathSync(current);
+      }
+    } catch {
+      // target or intermediate does not exist yet (new file write)
+    }
+    if (!isInsideRoot(rootReal, current)) {
+      return err({ kind: "escapes_workspace" });
+    }
+  }
+
+  const relativePath = relative(rootReal, current);
+  if (relativePath.startsWith("..")) {
+    return err({ kind: "escapes_workspace" });
+  }
+
+  const reparsed = parseRepoPath(relativePath);
+  if (!reparsed.ok) {
+    return err({ kind: "escapes_workspace" });
+  }
+
+  return ok(reparsed.value);
+};
+
 /** Check whether a mutation to `rawPath` is permitted under `scope`. */
 export const checkMutationAllowed = (
   scope: WriteScope,
   toolName: string,
   rawPath: string,
+  workspaceRoot?: string,
 ): ScopeDenial | undefined => {
   if (!isMutationTool(toolName)) return undefined;
 
@@ -55,13 +103,35 @@ export const checkMutationAllowed = (
     };
   }
 
+  const denyOutsideScope = (path: RepoPath): ScopeDenial => ({
+    kind: "scope_denied",
+    toolName,
+    path,
+    reason: `Write to "${path}" is outside the granted scope`,
+  });
+
   if (!pathWithinScope(scope, parsed.value)) {
-    return {
-      kind: "scope_denied",
-      toolName,
-      path: parsed.value,
-      reason: `Write to "${parsed.value}" is outside the granted scope`,
-    };
+    return denyOutsideScope(parsed.value);
+  }
+
+  if (workspaceRoot !== undefined) {
+    const resolved = resolveRepoPathInWorkspace(workspaceRoot, parsed.value);
+    if (!resolved.ok) {
+      return {
+        kind: "scope_denied",
+        toolName,
+        path: parsed.value,
+        reason: `Write to "${parsed.value}" escapes the workspace via symlink or traversal`,
+      };
+    }
+    if (!pathWithinScope(scope, resolved.value)) {
+      return {
+        kind: "scope_denied",
+        toolName,
+        path: parsed.value,
+        reason: `Write to "${parsed.value}" resolves outside the granted scope`,
+      };
+    }
   }
 
   return undefined;
@@ -72,6 +142,7 @@ export const evaluateToolCallUnderScope = (
   scope: WriteScope,
   toolName: string,
   args: unknown,
+  workspaceRoot?: string,
 ): ScopeDenial | undefined => {
   if (isReadOnlyTool(toolName)) return undefined;
 
@@ -85,7 +156,7 @@ export const evaluateToolCallUnderScope = (
         reason: `Mutation tool "${toolName}" requires a string path argument`,
       };
     }
-    return checkMutationAllowed(scope, toolName, rawPath);
+    return checkMutationAllowed(scope, toolName, rawPath, workspaceRoot);
   }
 
   return {
@@ -103,15 +174,20 @@ const toBlockResult = (denial: ScopeDenial): BeforeToolCallResult & ToolCallEven
 
 /** pi-agent-core hook: block mutation tools outside the granted scope. */
 export const createBeforeToolCallGuard =
-  (scope: WriteScope) =>
+  (scope: WriteScope, workspaceRoot?: string) =>
   async (context: BeforeToolCallContext): Promise<BeforeToolCallResult | undefined> => {
-    const denial = evaluateToolCallUnderScope(scope, context.toolCall.name, context.args);
+    const denial = evaluateToolCallUnderScope(
+      scope,
+      context.toolCall.name,
+      context.args,
+      workspaceRoot,
+    );
     return denial ? toBlockResult(denial) : undefined;
   };
 
 /** Pi extension factory (S2): enforce spine-supplied allowed paths on write/edit. */
 export const createPathProtectionExtension =
-  (scope: WriteScope) =>
+  (scope: WriteScope, workspaceRoot?: string) =>
   (pi: {
     on: (
       event: "tool_call",
@@ -119,7 +195,7 @@ export const createPathProtectionExtension =
     ) => void;
   }): void => {
     pi.on("tool_call", async (event) => {
-      const denial = evaluateToolCallUnderScope(scope, event.toolName, event.input);
+      const denial = evaluateToolCallUnderScope(scope, event.toolName, event.input, workspaceRoot);
       return denial ? toBlockResult(denial) : undefined;
     });
   };

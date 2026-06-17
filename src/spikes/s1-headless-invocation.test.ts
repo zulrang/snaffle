@@ -53,17 +53,21 @@ describe("S1 — Pi SDK headless invocation shape", () => {
     expect(agentResult.edits).toHaveLength(1);
   });
 
-  test("rejects an invalid target path before invoking the agent", async () => {
-    const result = await invokeStubAgent({
-      invocationId: must(InvocationId("inv-s1-bad-path")),
-      prompt: "nope",
-      targetPath: "../escape.ts",
-      content: "x",
-    });
+  test("invalid target path is blocked at tool execution, not trusted as evidence", async () => {
+    const result = must(
+      await invokeStubAgent(
+        {
+          invocationId: must(InvocationId("inv-s1-bad-path")),
+          prompt: "nope",
+          targetPath: "../escape.ts",
+          content: "x",
+        },
+        { scope },
+      ),
+    );
 
-    expect(result.ok).toBe(false);
-    if (result.ok) throw new Error("expected error");
-    expect(result.error.kind).toBe("invalid_target_path");
+    expect(result.status).toBe("refused");
+    expect(result.edits).toHaveLength(0);
   });
 });
 

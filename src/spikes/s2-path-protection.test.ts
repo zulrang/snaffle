@@ -1,4 +1,7 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Agent, type AgentTool } from "@earendil-works/pi-agent-core";
 import {
   fauxAssistantMessage,
@@ -23,7 +26,7 @@ type ToolCallHandler = (
   event: ToolCallEvent,
 ) => Promise<{ block?: boolean; reason?: string } | undefined>;
 
-const installExtensionHandler = (): ToolCallHandler => {
+const installExtensionHandler = (workspaceRoot?: string): ToolCallHandler => {
   let handler: ToolCallHandler | undefined;
   const pi = {
     on: (event: string, h: ToolCallHandler) => {
@@ -31,7 +34,7 @@ const installExtensionHandler = (): ToolCallHandler => {
     },
   } as ExtensionAPI;
 
-  createPathProtectionExtension(scope)(pi);
+  createPathProtectionExtension(scope, workspaceRoot)(pi);
   if (!handler) throw new Error("path protection extension did not register a handler");
   return handler;
 };
@@ -87,6 +90,57 @@ describe("S2 — Pi extension path protection", () => {
 
     expect(blocked?.block).toBe(true);
     expect(blocked?.reason).toContain("outside the granted scope");
+  });
+});
+
+describe("S2 — path escape vectors (D6)", () => {
+  const escapeVectors: readonly { readonly label: string; readonly path: string }[] = [
+    { label: "absolute path", path: "/etc/passwd" },
+    { label: "parent traversal", path: "src/domain/../../secrets/forbidden.ts" },
+    {
+      label: "redundant separators and dot segments",
+      path: "src//domain/.././../secrets/forbidden.ts",
+    },
+    { label: "case variant", path: "SRC/SECRETS/forbidden.ts" },
+  ];
+
+  for (const vector of escapeVectors) {
+    test(`extension blocks ${vector.label}`, async () => {
+      const handler = installExtensionHandler();
+      const blocked = await handler({
+        type: "tool_call",
+        toolCallId: `tc-${vector.label}`,
+        toolName: "write",
+        input: { path: vector.path, content: "x" },
+      });
+      expect(blocked?.block).toBe(true);
+    });
+  }
+});
+
+describe("S2 — symlink escape via extension (D6)", () => {
+  let workspace: string;
+
+  afterEach(() => {
+    if (workspace) rmSync(workspace, { recursive: true, force: true });
+  });
+
+  test("blocks a write through an in-scope symlink that resolves outside scope", async () => {
+    workspace = mkdtempSync(join(tmpdir(), "orchestrator-s2-symlink-"));
+    mkdirSync(join(workspace, "src/domain"), { recursive: true });
+    mkdirSync(join(workspace, "src/secrets"), { recursive: true });
+    symlinkSync(join(workspace, "src/secrets"), join(workspace, "src/domain/escape"));
+
+    const handler = installExtensionHandler(workspace);
+    const blocked = await handler({
+      type: "tool_call",
+      toolCallId: "tc-symlink",
+      toolName: "write",
+      input: { path: "src/domain/escape/pwned.ts", content: "x" },
+    });
+
+    expect(blocked?.block).toBe(true);
+    expect(blocked?.reason).toContain("resolves outside the granted scope");
   });
 });
 

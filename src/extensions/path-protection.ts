@@ -10,7 +10,9 @@ import { createPathProtectionExtension as createGuardExtension } from "../lib/sc
  * `lib/scope-guard.ts` and is also wired through pi-agent-core's
  * `beforeToolCall` under the orchestrator.
  */
-export const createPathProtectionExtension = (scope: WriteScope): ((pi: ExtensionAPI) => void) =>
-  createGuardExtension(scope);
+export const createPathProtectionExtension = (
+  scope: WriteScope,
+  workspaceRoot?: string,
+): ((pi: ExtensionAPI) => void) => createGuardExtension(scope, workspaceRoot);
 
 export default createPathProtectionExtension;

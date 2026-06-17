@@ -29,6 +29,10 @@ export type RepoPathError =
  * or trailing slash, no `.` segments, and crucially no `..` escape. Rejecting
  * `..` at construction is what makes containment checks trustworthy downstream.
  */
+/** ponytail: darwin APFS default is case-insensitive; fold segments at parse time. */
+const canonicalSegment = (segment: string): string =>
+  process.platform === "darwin" ? segment.toLocaleLowerCase() : segment;
+
 export const parseRepoPath = (raw: string): Result<RepoPath, RepoPathError> => {
   const trimmed = raw.trim();
   if (trimmed.length === 0) return err({ kind: "empty_path", value: raw });
@@ -39,7 +43,7 @@ export const parseRepoPath = (raw: string): Result<RepoPath, RepoPathError> => {
   for (const segment of trimmed.split("/")) {
     if (segment === "" || segment === ".") continue;
     if (segment === "..") return err({ kind: "path_escapes_root", value: raw });
-    segments.push(segment);
+    segments.push(canonicalSegment(segment));
   }
   if (segments.length === 0) return err({ kind: "empty_path", value: raw });
 
@@ -53,11 +57,16 @@ const segmentsOf = (path: RepoPath): readonly string[] => path.split("/");
  * True when `candidate` is the prefix path itself or nested beneath it. Matching
  * is segment-wise so `src/foo` does not match `src/foobar`.
  */
+const segmentMatches = (candidate: string, prefix: string): boolean =>
+  process.platform === "darwin"
+    ? candidate.toLocaleLowerCase() === prefix.toLocaleLowerCase()
+    : candidate === prefix;
+
 export const pathWithinPrefix = (candidate: RepoPath, prefix: RepoPath): boolean => {
   const c = segmentsOf(candidate);
   const p = segmentsOf(prefix);
   if (c.length < p.length) return false;
-  return p.every((segment, i) => segment === c[i]);
+  return p.every((segment, i) => segmentMatches(c[i] ?? "", segment));
 };
 
 // ---------------------------------------------------------------------------
