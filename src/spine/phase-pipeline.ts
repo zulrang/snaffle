@@ -4,6 +4,7 @@ import { type GateReport, gatePassed } from "../domain/gate";
 import type { GateRunId, InvocationId, TransitionId } from "../domain/ids";
 import { InvocationId as makeInvocationId } from "../domain/ids";
 import type { Lineage } from "../domain/lineage";
+import { makeWriteScope, parseRepoPath } from "../domain/scope";
 import { err, ok, type Result, type Timestamp } from "../domain/shared";
 import type { LineageState, StateTransition } from "../domain/transition";
 import { AGENT_DEFINITIONS } from "../lib/agents";
@@ -41,6 +42,20 @@ import { stepBudget } from "./skeleton-run";
  */
 
 const runningState: LineageState = { status: "running", phase: "implement" };
+
+/**
+ * Throwaway scratch scope for the spiker (W8, D25). The spike retires an open
+ * question; its output is never the change, so it is confined to a scratch path
+ * the runner never applies to the worktree — disjoint from any lineage scope.
+ */
+export const SPIKE_THROWAWAY_PATH = ".orchestrator/spike";
+
+const spikeThrowawayScope = () => {
+  const path = parseRepoPath(SPIKE_THROWAWAY_PATH);
+  if (!path.ok) return undefined;
+  const scope = makeWriteScope([path.value]);
+  return scope.ok ? scope.value : undefined;
+};
 
 export interface PhaseTask {
   readonly prompt: string;
@@ -155,12 +170,23 @@ export const runLineagePipeline = async (
       const invocationId = phaseInvocationId(input.ids.invocationBase, phase);
       if (!invocationId.ok) return invocationId;
 
+      // The spiker runs in a throwaway scratch scope (D25); spec/plan author
+      // artifacts inside the lineage scope. None of these writes are applied.
+      let phaseScope = input.lineage.declaredScope;
+      if (phase === "spike") {
+        const throwaway = spikeThrowawayScope();
+        if (throwaway === undefined) {
+          return err({ kind: "scope_violation", detail: "could not build spike throwaway scope" });
+        }
+        phaseScope = throwaway;
+      }
+
       const invoked = await invokeAgent({
         definition: def,
         invocationId: invocationId.value,
         prompt: task.prompt,
         writes: task.writes,
-        scope: input.lineage.declaredScope,
+        scope: phaseScope,
         config: input.config,
         repoRoot: input.repoRoot,
         workspaceRoot: input.gate.worktreeRoot,
