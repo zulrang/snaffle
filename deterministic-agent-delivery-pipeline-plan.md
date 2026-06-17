@@ -172,6 +172,8 @@ Four spikes (one M door, one M failure, one M plan, one S tier) plus roughly two
 
 ## 5. Phase 4 — Real Agents, Skills, Phase Pipeline (detailed)
 
+**Status: complete** (spikes S1–S4 + work items W1–W6, W8 shipped; W7 deferred per cut line 1). `bun run check` and `npm run check:node` green (220 tests); acceptance in `phase4-acceptance-checklist.md`. The default execution path is now `runLineageForRegime`/`runLineagePipeline` over composed faux-backed agents; `runSkeletonLineage` (the Phase-1 stub) is retired from the default path.
+
 Realizes spec **D2, D3, D7, D25** (and fills in the §8 control-flow phases). Builds on the Phase 1–3 integrity floor: lock (D23), gate (D8/D12/D16), scope + oracle-freeze (D6/D7), provenance (D10/D21), classifiers + router + budget + tier resolution (D4/D5/D18/D22), control-plane transitions (D19).
 
 **Goal.** Replace the single stub invocation with the five real subagents (spec, planner, spiker, implementer, test-author) composed over a flat Pi skill library, driven through the spec → plan → (spike) → implement → validate pipeline, with the D7 oracle-authoring handoff (test-author freezes the oracle before the implementer runs, handed read-only) and the D25 minimal/full regime split — *without* yet adding lineage concurrency or the batched HITL queue (Phase 5), expand/contract (Phase 6), or a stochastic grader (D24, deferred). Tests use the **faux** provider (AGENTS.md): they prove the SDK/skill/composition shape, not live model quality.
