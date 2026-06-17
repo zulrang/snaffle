@@ -50,6 +50,7 @@ describe("RepoPath", () => {
     expect(parseRepoPath("../etc/passwd").ok).toBe(false);
     expect(parseRepoPath("/abs/path").ok).toBe(false);
     expect(parseRepoPath("   ").ok).toBe(false);
+    expect(parseRepoPath("src/\0/domain").ok).toBe(false);
   });
 });
 

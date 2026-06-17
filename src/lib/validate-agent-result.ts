@@ -121,6 +121,9 @@ const checkOutcomeConsistency = (
   outcome: AgentOutcome,
   edits: readonly FileEdit[],
 ): AgentResultValidationError | undefined => {
+  if (outcome === "failed" && edits.length > 0) {
+    return malformed("failed outcome must not carry edits");
+  }
   if (outcome === "refused" && edits.length > 0) {
     return malformed("refused outcome must not carry edits");
   }

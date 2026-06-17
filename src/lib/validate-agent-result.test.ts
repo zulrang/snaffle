@@ -80,4 +80,19 @@ describe("validateAgentResult", () => {
     if (result.ok) throw new Error("expected consistency rejection");
     expect(result.error.reason).toContain("succeeded outcome must include at least one edit");
   });
+
+  test("rejects failed outcome with edits", () => {
+    const result = validateAgentResult(
+      {
+        ...wellFormed,
+        outcome: "failed",
+        summary: "agent error",
+      },
+      invocationId,
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected consistency rejection");
+    expect(result.error.reason).toContain("failed outcome must not carry edits");
+  });
 });

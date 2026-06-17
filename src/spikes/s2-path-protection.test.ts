@@ -74,6 +74,20 @@ describe("S2 — Pi extension path protection", () => {
     expect(blocked?.block).toBe(true);
     expect(blocked?.reason).toContain("outside the granted scope");
   });
+
+  test("blocks scoped_write outside scope", async () => {
+    const handler = installExtensionHandler();
+
+    const blocked = await handler({
+      type: "tool_call",
+      toolCallId: "tc-3",
+      toolName: "scoped_write",
+      input: { path: "src/secrets/key.ts", content: "x" },
+    });
+
+    expect(blocked?.block).toBe(true);
+    expect(blocked?.reason).toContain("outside the granted scope");
+  });
 });
 
 describe("S2 — pi-agent-core beforeToolCall adapter (same lib/ guard)", () => {

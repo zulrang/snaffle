@@ -32,6 +32,7 @@ export type RepoPathError =
 export const parseRepoPath = (raw: string): Result<RepoPath, RepoPathError> => {
   const trimmed = raw.trim();
   if (trimmed.length === 0) return err({ kind: "empty_path", value: raw });
+  if (trimmed.includes("\0")) return err({ kind: "path_escapes_root", value: raw });
   if (trimmed.startsWith("/")) return err({ kind: "absolute_path", value: raw });
 
   const segments: string[] = [];

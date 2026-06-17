@@ -13,6 +13,9 @@ import { parseRepoPath, pathWithinScope, type WriteScope } from "../domain/scope
 export const MUTATION_TOOL_NAMES = ["write", "edit", "scoped_write"] as const;
 export type MutationToolName = (typeof MUTATION_TOOL_NAMES)[number];
 
+/** Tools allowed without scope enforcement under a grant (read-only / non-mutating). */
+export const READ_ONLY_TOOL_NAMES = [] as const;
+
 export interface ScopeDenial {
   readonly kind: "scope_denied";
   readonly toolName: string;
@@ -22,6 +25,9 @@ export interface ScopeDenial {
 
 const isMutationTool = (toolName: string): toolName is MutationToolName =>
   (MUTATION_TOOL_NAMES as readonly string[]).includes(toolName);
+
+const isReadOnlyTool = (toolName: string): boolean =>
+  (READ_ONLY_TOOL_NAMES as readonly string[]).includes(toolName);
 
 /** Extract the target path from a mutation tool's validated arguments. */
 export const extractWritePath = (toolName: string, args: unknown): string | undefined => {
@@ -61,6 +67,35 @@ export const checkMutationAllowed = (
   return undefined;
 };
 
+/** Single scope decision for a tool call under a grant — fail closed on unknown tools. */
+export const evaluateToolCallUnderScope = (
+  scope: WriteScope,
+  toolName: string,
+  args: unknown,
+): ScopeDenial | undefined => {
+  if (isReadOnlyTool(toolName)) return undefined;
+
+  if (isMutationTool(toolName)) {
+    const rawPath = extractWritePath(toolName, args);
+    if (rawPath === undefined) {
+      return {
+        kind: "scope_denied",
+        toolName,
+        path: "unknown",
+        reason: `Mutation tool "${toolName}" requires a string path argument`,
+      };
+    }
+    return checkMutationAllowed(scope, toolName, rawPath);
+  }
+
+  return {
+    kind: "scope_denied",
+    toolName,
+    path: "unknown",
+    reason: `Tool "${toolName}" is not permitted under a write scope grant`,
+  };
+};
+
 const toBlockResult = (denial: ScopeDenial): BeforeToolCallResult & ToolCallEventResult => ({
   block: true,
   reason: denial.reason,
@@ -70,10 +105,7 @@ const toBlockResult = (denial: ScopeDenial): BeforeToolCallResult & ToolCallEven
 export const createBeforeToolCallGuard =
   (scope: WriteScope) =>
   async (context: BeforeToolCallContext): Promise<BeforeToolCallResult | undefined> => {
-    const rawPath = extractWritePath(context.toolCall.name, context.args);
-    if (rawPath === undefined) return undefined;
-
-    const denial = checkMutationAllowed(scope, context.toolCall.name, rawPath);
+    const denial = evaluateToolCallUnderScope(scope, context.toolCall.name, context.args);
     return denial ? toBlockResult(denial) : undefined;
   };
 
@@ -87,14 +119,7 @@ export const createPathProtectionExtension =
     ) => void;
   }): void => {
     pi.on("tool_call", async (event) => {
-      const rawPath =
-        event.toolName === "write" || event.toolName === "edit"
-          ? event.input.path
-          : extractWritePath(event.toolName, event.input);
-
-      if (typeof rawPath !== "string") return undefined;
-
-      const denial = checkMutationAllowed(scope, event.toolName, rawPath);
+      const denial = evaluateToolCallUnderScope(scope, event.toolName, event.input);
       return denial ? toBlockResult(denial) : undefined;
     });
   };
