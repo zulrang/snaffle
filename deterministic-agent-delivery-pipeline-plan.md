@@ -312,3 +312,5 @@ Four spikes (three M concurrency/queue, one S adapter) plus roughly three S and 
 ### Dependency order
 
 S1 → W4 ; S2 → W3 → W4 ; W2 → W3 + W5 ; W1 ‖ (independent) ; S3 → W5 → W6 ; S4 → W7 | W4 + W5 → W9 ; W8 → W9 ; W10 last. (W7 live integration and the W4 affinity tiebreak are cut-line.)
+
+**Status: complete** (spikes S1–S4 + work items W1–W10 shipped; W7 live GitHub deferred per cut line 2). `bun run check` and `npm run check:node` green (270 tests); acceptance in `phase5-acceptance-checklist.md`. Bounded-N batch scheduling, durable HITL queue + two-way sampling, and acceptance snapshots are wired into the spine; the default CLI drives the regime pipeline.
