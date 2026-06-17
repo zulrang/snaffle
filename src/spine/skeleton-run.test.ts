@@ -60,12 +60,17 @@ const idsFor = (suffix: string): SkeletonRunIds => ({
 
 describe("W8 — end-to-end skeleton wiring", () => {
   afterEach(async () => {
-    const lockPath = join(repoRoot, OWNERSHIP_LOCK_DIR, OWNERSHIP_LOCK_FILE);
+    const orchestratorDir = join(repoRoot, OWNERSHIP_LOCK_DIR);
+    const lockPath = join(orchestratorDir, OWNERSHIP_LOCK_FILE);
     if (existsSync(lockPath)) {
       const claim = await readWriterClaim(repoRoot);
       if (claim?.pid === process.pid) {
         rmSync(lockPath, { force: true });
       }
+    }
+    const provenancePath = join(orchestratorDir, PROVENANCE_DB_FILE);
+    if (existsSync(provenancePath)) {
+      rmSync(provenancePath, { force: true });
     }
   });
 

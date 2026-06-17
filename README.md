@@ -41,6 +41,10 @@ Individual scripts:
 | `bun run format` | `biome format --write .` |
 | `bun run check` | all three gates, in order |
 
+## CI
+
+GitHub Actions runs `bun run check` on every push to `main` and on pull requests (`.github/workflows/check.yml`). This is the same gate the repo dogfoods locally — typecheck, lint, and the full test suite, including W8 integration tests that use git worktrees.
+
 ## Layout
 
 ```
