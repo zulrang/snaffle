@@ -10,9 +10,10 @@ import {
   RequirementId,
   TransitionId,
 } from "../domain/ids";
-import { freezeAcceptanceTarget, type Lineage, makeLineage } from "../domain/lineage";
+import { type Lineage, makeLineage } from "../domain/lineage";
 import { makeWriteScope, parseRepoPath } from "../domain/scope";
-import { err, ok, parseContentHash, parseTimestamp, type Result } from "../domain/shared";
+import { err, ok, parseTimestamp, type Result } from "../domain/shared";
+import { snapshotAcceptanceTarget } from "../lib/acceptance-snapshot";
 import { classifyDoor } from "../lib/door-classifier";
 import { loadOrchestratorConfig } from "../lib/orchestrator-config";
 import { type ActiveWriterClaim, attachObserver } from "../lib/ownership-lock";
@@ -44,11 +45,7 @@ export const buildDefaultPhase1Lineage = (
   const scope = makeWriteScope([domainPath.value, libPath.value]);
   if (!scope.ok) return err({ kind: "invalid_default" });
 
-  const targetHash = parseContentHash("b".repeat(64));
-  if (!targetHash.ok) return err({ kind: "invalid_default" });
-
-  const acceptanceTarget = freezeAcceptanceTarget({
-    targetHash: targetHash.value,
+  const acceptanceTarget = snapshotAcceptanceTarget({
     criteria: [{ id: "c1", statement: "skeleton merges on green POST-gate" }],
     frozenAt: ts.value,
   });
