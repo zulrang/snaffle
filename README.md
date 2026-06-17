@@ -4,7 +4,7 @@ A deterministic control plane (the **spine**) that drives stochastic coding agen
 
 See [`deterministic-agent-delivery-pipeline-spec.md`](./deterministic-agent-delivery-pipeline-spec.md) for the full spec and [`deterministic-agent-delivery-pipeline-plan.md`](./deterministic-agent-delivery-pipeline-plan.md) for the build plan.
 
-> **Status:** Phase 1 (walking skeleton) — in progress. Domain model and Pi integration spikes (S1, S2) are green; work items W2–W8 come next.
+> **Status:** Phase 1 (walking skeleton) — in progress. Domain model, Pi spikes (S1, S2), W2 ownership lock, and W3 capability grant wiring are green; W4–W8 come next.
 
 ## Dependencies
 
@@ -58,7 +58,10 @@ src/
     provenance.ts    Content-addressed generation records           (D10, D21)
   lib/
     scope-guard.ts       Single copy of write-scope enforcement (D12) — shared by spine, Agent, extension
+    capability-grant.ts  Per-invocation grant issuance (D6, W3)
     ownership-lock.ts    Single-writer workspace lock (D23) — writer fail-fast, observer attach, stale reclaim
+  spine/
+    scoped-invocation.ts W3: grant → beforeToolCall guard → scope events surfaced to orchestrator
   pi/
     invoke-stub-agent.ts   S1: headless stub invocation via pi-agent-core + faux model
   extensions/
@@ -89,6 +92,8 @@ Both paths share identical rules; tests prove in-scope writes succeed, out-of-sc
 - **Observer:** `attachObserver` reads the live claim without taking the lock
 - **Release:** explicit `release()` and process exit/signal handlers on clean shutdown
 - **Crash reclaim:** dead pid ⇒ stale lock removed via `reclaimStaleLock` (simulated with SIGKILL in tests)
+
+**W3 — Capability grant + path protection (D6).** `issueCapabilityGrant` in `lib/capability-grant.ts` issues per-invocation authority; `invokeWithCapabilityGrant` in `spine/scoped-invocation.ts` wires `grant.scope` through `createBeforeToolCallGuard` (never from agent context). Both in-scope successes and out-of-scope denials are surfaced as `ScopeEvent`s on the spine outcome.
 
 ### Domain modelling principles
 

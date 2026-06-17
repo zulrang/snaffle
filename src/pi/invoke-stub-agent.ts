@@ -10,7 +10,7 @@ import {
 import type { Static } from "typebox";
 import type { AgentOutcome, AgentResult, FileEdit } from "../domain/agent";
 import type { InvocationId } from "../domain/ids";
-import { parseRepoPath, type WriteScope } from "../domain/scope";
+import { parseRepoPath, type RepoPath, type WriteScope } from "../domain/scope";
 import { err, ok, type Result } from "../domain/shared";
 import { createBeforeToolCallGuard } from "../lib/scope-guard";
 
@@ -51,9 +51,26 @@ export interface StubInvocationTask {
   readonly content: string;
 }
 
+export interface StubSequenceWrite {
+  readonly path: string;
+  readonly content: string;
+}
+
+export interface StubSequenceTask {
+  readonly invocationId: InvocationId;
+  readonly prompt: string;
+  readonly writes: readonly StubSequenceWrite[];
+}
+
+export interface ScopeDenialEvent {
+  readonly reason: string;
+  readonly path: string;
+}
+
 export interface StubInvocationOptions {
   readonly scope?: WriteScope;
-  readonly onScopeDenial?: (denial: { reason: string; path: string }) => void;
+  readonly onScopeDenial?: (denial: ScopeDenialEvent, toolName: string) => void;
+  readonly onWriteAllowed?: (path: RepoPath, toolName: string) => void;
 }
 
 export interface StubInvocationError {
@@ -64,7 +81,11 @@ export interface StubInvocationError {
 const PI_AGENT_CORE_VERSION = "0.74.0";
 const PI_AI_VERSION = "0.74.0";
 
-const createScopedWriteTool = (edits: FileEdit[]): AgentTool<typeof writeSchema> => ({
+const createScopedWriteTool = (
+  edits: FileEdit[],
+  totalWrites: number,
+  onWriteAllowed?: (path: RepoPath, toolName: string) => void,
+): AgentTool<typeof writeSchema> => ({
   name: "scoped_write",
   label: "Scoped Write",
   description: "Write content to a repo-relative path within the granted scope.",
@@ -75,10 +96,11 @@ const createScopedWriteTool = (edits: FileEdit[]): AgentTool<typeof writeSchema>
     if (!parsed.ok) throw new Error(parsed.error.kind);
 
     edits.push({ path: parsed.value, operation: "modify" });
+    onWriteAllowed?.(parsed.value, "scoped_write");
     return {
       content: [{ type: "text", text: `Wrote ${params.path}` }],
       details: { path: params.path, bytes: params.content.length },
-      terminate: true,
+      ...(totalWrites === 1 ? { terminate: true as const } : {}),
     };
   },
 });
@@ -91,19 +113,20 @@ const toAgentResult = (result: StubInvocationResult): AgentResult => ({
   summary: result.summary,
 });
 
-/**
- * S1 — drive a stub Pi agent headlessly via pi-agent-core with a pinned faux model.
- *
- * No interactive session, no network: the faux provider returns a scripted tool call,
- * the agent executes it, and the spine receives a validated structured result.
- */
-export const invokeStubAgent = async (
-  task: StubInvocationTask,
+const runStubAgent = async (
+  task: { readonly invocationId: InvocationId; readonly prompt: string },
+  writes: readonly StubSequenceWrite[],
   options: StubInvocationOptions = {},
 ): Promise<Result<StubInvocationResult, StubInvocationError>> => {
-  const target = parseRepoPath(task.targetPath);
-  if (!target.ok) {
-    return err({ kind: "invalid_target_path", detail: task.targetPath });
+  if (writes.length === 0) {
+    return err({ kind: "invalid_target_path", detail: "no writes requested" });
+  }
+
+  for (const write of writes) {
+    const target = parseRepoPath(write.path);
+    if (!target.ok) {
+      return err({ kind: "invalid_target_path", detail: write.path });
+    }
   }
 
   const faux = registerFauxProvider({
@@ -119,14 +142,16 @@ export const invokeStubAgent = async (
 
   try {
     const model = faux.getModel(STUB_MODEL_ID) as Model<string>;
-    faux.setResponses([
-      fauxAssistantMessage([
-        fauxToolCall("scoped_write", { path: task.targetPath, content: task.content }),
-      ]),
-    ]);
+    faux.setResponses(
+      writes.map((write) =>
+        fauxAssistantMessage([
+          fauxToolCall("scoped_write", { path: write.path, content: write.content }),
+        ]),
+      ),
+    );
 
     const edits: FileEdit[] = [];
-    const scopeDenials: Array<{ reason: string; path: string }> = [];
+    const scopeDenials: ScopeDenialEvent[] = [];
     const scopeGuard = options.scope ? createBeforeToolCallGuard(options.scope) : undefined;
 
     const agent = new Agent({
@@ -134,7 +159,7 @@ export const invokeStubAgent = async (
         systemPrompt: "You are a deterministic stub agent for the orchestrator spine.",
         model,
         thinkingLevel: "off",
-        tools: [createScopedWriteTool(edits)],
+        tools: [createScopedWriteTool(edits, writes.length, options.onWriteAllowed)],
       },
       streamFn: streamSimple,
       toolExecution: "sequential",
@@ -143,12 +168,19 @@ export const invokeStubAgent = async (
             beforeToolCall: async (context) => {
               const result = await scopeGuard(context);
               if (result?.block) {
+                const rawPath =
+                  typeof context.args === "object" &&
+                  context.args !== null &&
+                  "path" in context.args &&
+                  typeof context.args.path === "string"
+                    ? context.args.path
+                    : "unknown";
                 const denial = {
                   reason: result.reason ?? "blocked",
-                  path: task.targetPath,
+                  path: rawPath,
                 };
                 scopeDenials.push(denial);
-                options.onScopeDenial?.(denial);
+                options.onScopeDenial?.(denial, context.toolCall.name);
               }
               return result;
             },
@@ -174,7 +206,9 @@ export const invokeStubAgent = async (
         ? (scopeDenials[0]?.reason ?? "Write refused by scope guard")
         : status === "failed"
           ? (agentError ?? "Agent run failed")
-          : `Stub edit applied to ${task.targetPath}`;
+          : writes.length === 1
+            ? `Stub edit applied to ${writes[0]?.path ?? "unknown"}`
+            : `Stub edits applied (${edits.length}/${writes.length} writes)`;
 
     if (status === "failed") {
       return err({ kind: "agent_error", detail: summary });
@@ -199,6 +233,25 @@ export const invokeStubAgent = async (
     faux.unregister();
   }
 };
+
+/**
+ * S1 — drive a stub Pi agent headlessly via pi-agent-core with a pinned faux model.
+ *
+ * No interactive session, no network: the faux provider returns a scripted tool call,
+ * the agent executes it, and the spine receives a validated structured result.
+ */
+export const invokeStubAgent = async (
+  task: StubInvocationTask,
+  options: StubInvocationOptions = {},
+): Promise<Result<StubInvocationResult, StubInvocationError>> =>
+  runStubAgent(task, [{ path: task.targetPath, content: task.content }], options);
+
+/** Run multiple scripted writes in one agent session (W3). */
+export const invokeStubAgentSequence = async (
+  task: StubSequenceTask,
+  options: StubInvocationOptions = {},
+): Promise<Result<StubInvocationResult, StubInvocationError>> =>
+  runStubAgent(task, task.writes, options);
 
 /** Convert a stub invocation result into the domain evidence type (D19). */
 export const stubResultToAgentResult = (result: StubInvocationResult): AgentResult =>
