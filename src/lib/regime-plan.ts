@@ -1,4 +1,5 @@
-import type { Regime } from "../domain/door";
+import { type DoorClassification, type Regime, regimeForDoor } from "../domain/door";
+import type { OracleCoverageDecision } from "./oracle-coverage";
 
 /**
  * Regime-driven phase plan (D25, seeds S4/W6).
@@ -68,4 +69,27 @@ export const planForRegime = (regime: Regime, options: RegimePlanOptions = {}): 
     phases,
     terminal: regime === "full" ? "await_human" : "auto_merge",
   };
+};
+
+export interface RegimeSelectionOptions {
+  readonly hasOpenQuestion?: boolean;
+}
+
+/**
+ * Select the phase plan from the lineage's door + oracle coverage (W6, D25). The
+ * door fixes the regime; in the minimal regime a `reuse` coverage decision lets
+ * the oracle-authoring phase collapse, while `author` keeps it. The full regime
+ * always authors the oracle and holds for a human regardless of coverage —
+ * `planForRegime` enforces that, so coverage can never collapse a one-way door.
+ */
+export const selectRegimePlan = (
+  door: DoorClassification,
+  coverage: OracleCoverageDecision,
+  options: RegimeSelectionOptions = {},
+): RegimePlan => {
+  const regime = regimeForDoor(door);
+  return planForRegime(regime, {
+    oracleCovered: regime === "minimal" && coverage.kind === "reuse",
+    ...(options.hasOpenQuestion === undefined ? {} : { hasOpenQuestion: options.hasOpenQuestion }),
+  });
 };

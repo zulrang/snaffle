@@ -15,9 +15,10 @@ import {
   type RouteFailureDecision,
   routeFailureWithPolicy,
 } from "../lib/failure-router";
+import type { OracleCoverageDecision } from "../lib/oracle-coverage";
 import type { OracleFreezeRecord } from "../lib/oracle-freeze";
 import type { OrchestratorConfig } from "../lib/orchestrator-config";
-import type { PipelinePhase, RegimePlan } from "../lib/regime-plan";
+import { type PipelinePhase, type RegimePlan, selectRegimePlan } from "../lib/regime-plan";
 import { validateAgentResult } from "../lib/validate-agent-result";
 import { applyWritesToWorktree } from "../lib/worktree-writes";
 import type { PromptCacheHint } from "../pi/prompt-cache";
@@ -337,4 +338,24 @@ export const runLineagePipeline = async (
   }
 
   return err({ kind: "no_validate_phase", detail: "plan has no validate phase" });
+};
+
+export interface RegimePipelineInput extends Omit<LineagePipelineInput, "plan"> {
+  /** Oracle-reuse decision (W6); `reuse` collapses oracle-authoring in the minimal regime. */
+  readonly coverage: OracleCoverageDecision;
+  readonly hasOpenQuestion?: boolean;
+}
+
+/**
+ * W6 entry point: derive the phase sequence from the lineage's regime + oracle
+ * coverage, then run it. The runner never receives a hand-picked plan — the door
+ * and coverage decide it (D25).
+ */
+export const runLineageForRegime = async (
+  input: RegimePipelineInput,
+): Promise<Result<LineagePipelineOutcome, PipelineError>> => {
+  const plan = selectRegimePlan(input.lineage.door, input.coverage, {
+    ...(input.hasOpenQuestion === undefined ? {} : { hasOpenQuestion: input.hasOpenQuestion }),
+  });
+  return runLineagePipeline({ ...input, plan });
 };
