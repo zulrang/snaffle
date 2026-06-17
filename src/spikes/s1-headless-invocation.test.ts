@@ -35,7 +35,7 @@ describe("S1 — Pi SDK headless invocation shape", () => {
         operation: "modify",
       },
     ]);
-    expect(result.metadata).toEqual({
+    expect(result.metadata).toMatchObject({
       provider: "orchestrator-stub",
       modelId: STUB_MODEL_ID,
       modelVersion: STUB_MODEL_VERSION,
@@ -44,6 +44,7 @@ describe("S1 — Pi SDK headless invocation shape", () => {
         piAi: "0.74.0",
       },
     });
+    expect(result.metadata.usage).toBeDefined();
     expect(result.summary).toContain("src/domain/gate.ts");
 
     const agentResult = stubResultToAgentResult(result);

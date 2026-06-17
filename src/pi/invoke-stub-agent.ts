@@ -1,11 +1,13 @@
 import { Agent, type AgentEvent, type AgentTool } from "@earendil-works/pi-agent-core";
 import {
+  type FauxProviderRegistration,
   fauxAssistantMessage,
   fauxToolCall,
   type Model,
   registerFauxProvider,
   streamSimple,
   Type,
+  type Usage,
 } from "@earendil-works/pi-ai";
 import type { Static } from "typebox";
 import type { AgentOutcome, AgentResult, FileEdit } from "../domain/agent";
@@ -13,6 +15,7 @@ import type { InvocationId } from "../domain/ids";
 import { parseRepoPath, type RepoPath, type WriteScope } from "../domain/scope";
 import { err, ok, type Result } from "../domain/shared";
 import { createBeforeToolCallGuard } from "../lib/scope-guard";
+import { createCachedStreamFn, type PromptCacheHint } from "./prompt-cache";
 
 /** Pinned stub model used by S1 — deterministic, no network, no interactive session. */
 export const STUB_MODEL_ID = "orchestrator-stub-v1";
@@ -33,6 +36,8 @@ export interface StubInvocationMetadata {
     readonly piAgentCore: string;
     readonly piAi: string;
   };
+  readonly usage?: Usage;
+  readonly promptCache?: PromptCacheHint;
 }
 
 /** Structured result from a headless stub invocation (S1). Maps to domain `AgentResult`. */
@@ -71,6 +76,14 @@ export interface StubInvocationOptions {
   readonly scope?: WriteScope;
   readonly onScopeDenial?: (denial: ScopeDenialEvent, toolName: string) => void;
   readonly onWriteAllowed?: (path: RepoPath, toolName: string) => void;
+  /** pi-ai prompt cache hint forwarded through streamSimple / agent sessionId. */
+  readonly promptCache?: PromptCacheHint;
+  /**
+   * Reuse an existing faux registration so prompt-cache state survives across
+   * invocations (tests and spine session reuse). When omitted, a registration is
+   * created for this call and unregistered in `finally`.
+   */
+  readonly fauxRegistration?: FauxProviderRegistration;
 }
 
 export interface StubInvocationError {
@@ -80,6 +93,30 @@ export interface StubInvocationError {
 
 const PI_AGENT_CORE_VERSION = "0.74.0";
 const PI_AI_VERSION = "0.74.0";
+
+const createDefaultFauxRegistration = (): FauxProviderRegistration =>
+  registerFauxProvider({
+    provider: "orchestrator-stub",
+    models: [
+      {
+        id: STUB_MODEL_ID,
+        name: "Orchestrator Stub Agent",
+        reasoning: false,
+      },
+    ],
+  });
+
+/** Shared faux environment for repeated invocations (prompt-cache tests, spine sessions). */
+export const createStubFauxEnvironment = (): {
+  readonly registration: FauxProviderRegistration;
+  readonly dispose: () => void;
+} => {
+  const registration = createDefaultFauxRegistration();
+  return {
+    registration,
+    dispose: () => registration.unregister(),
+  };
+};
 
 const createScopedWriteTool = (
   edits: FileEdit[],
@@ -129,16 +166,8 @@ const runStubAgent = async (
     }
   }
 
-  const faux = registerFauxProvider({
-    provider: "orchestrator-stub",
-    models: [
-      {
-        id: STUB_MODEL_ID,
-        name: "Orchestrator Stub Agent",
-        reasoning: false,
-      },
-    ],
-  });
+  const faux = options.fauxRegistration ?? createDefaultFauxRegistration();
+  const ownsFaux = options.fauxRegistration === undefined;
 
   try {
     const model = faux.getModel(STUB_MODEL_ID) as Model<string>;
@@ -153,6 +182,7 @@ const runStubAgent = async (
     const edits: FileEdit[] = [];
     const scopeDenials: ScopeDenialEvent[] = [];
     const scopeGuard = options.scope ? createBeforeToolCallGuard(options.scope) : undefined;
+    const streamFn = options.promptCache ? createCachedStreamFn(options.promptCache) : streamSimple;
 
     const agent = new Agent({
       initialState: {
@@ -161,8 +191,9 @@ const runStubAgent = async (
         thinkingLevel: "off",
         tools: [createScopedWriteTool(edits, writes.length, options.onWriteAllowed)],
       },
-      streamFn: streamSimple,
+      streamFn,
       toolExecution: "sequential",
+      ...(options.promptCache ? { sessionId: options.promptCache.sessionId } : {}),
       ...(scopeGuard
         ? {
             beforeToolCall: async (context) => {
@@ -189,7 +220,11 @@ const runStubAgent = async (
     });
 
     let agentError: string | undefined;
+    let usage: Usage | undefined;
     agent.subscribe((event: AgentEvent) => {
+      if (event.type === "message_end" && event.message.role === "assistant") {
+        usage = event.message.usage;
+      }
       if (event.type === "agent_end" && agent.state.errorMessage) {
         agentError = agent.state.errorMessage;
       }
@@ -225,12 +260,16 @@ const runStubAgent = async (
           piAgentCore: PI_AGENT_CORE_VERSION,
           piAi: PI_AI_VERSION,
         },
+        ...(usage ? { usage } : {}),
+        ...(options.promptCache ? { promptCache: options.promptCache } : {}),
       },
       invocationId: task.invocationId,
       summary,
     });
   } finally {
-    faux.unregister();
+    if (ownsFaux) {
+      faux.unregister();
+    }
   }
 };
 

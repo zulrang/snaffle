@@ -30,3 +30,4 @@ Gate before claiming done: `bun run check`
 
 - Architecture and decisions (D1–D25): `deterministic-agent-delivery-pipeline-spec.md`
 - Phase 1 build plan, cut lines, exit criteria: `deterministic-agent-delivery-pipeline-plan.md`
+- Prompt cache hints, skills prefix, provider mapping: `docs/prompt-cache.md`
