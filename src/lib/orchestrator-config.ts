@@ -4,6 +4,8 @@ import TOML from "smol-toml";
 import { ONE_WAY_TRIGGERS, type OneWayTrigger } from "../domain/door";
 import { err, ok, type Result } from "../domain/shared";
 import { DEFAULT_GATE_CONFIG_REL } from "./gate-config";
+import type { GovernancePolicy } from "./governance-policy";
+import { defaultGovernancePolicy, parseGovernanceSection } from "./governance-policy";
 
 /**
  * Orchestrator control-plane config (D15, D18, D22) — door taxonomy, tier mapping,
@@ -40,6 +42,14 @@ export interface HitlConfig {
   readonly twoWaySampleRate: number;
 }
 
+export interface RolloutConfig {
+  readonly enabled: boolean;
+  readonly flagName: string;
+  readonly metricRef: string;
+  readonly threshold: number;
+  readonly pollIntervalMs: number;
+}
+
 export interface TierTable {
   readonly light: ModelRef;
   readonly mid: ModelRef;
@@ -51,6 +61,8 @@ export interface OrchestratorConfig {
   readonly tiers: TierTable;
   readonly budget: BudgetLimits;
   readonly hitl: HitlConfig;
+  readonly rollout: RolloutConfig;
+  readonly governance: GovernancePolicy;
 }
 
 export type OrchestratorConfigError =
@@ -267,11 +279,59 @@ const parseHitl = (raw: unknown): Result<HitlConfig, OrchestratorConfigError> =>
   return ok({ twoWaySampleRate: rate });
 };
 
+const parseRollout = (raw: unknown): Result<RolloutConfig, OrchestratorConfigError> => {
+  const defaults = defaultOrchestratorConfig().rollout;
+  if (raw === undefined) return ok(defaults);
+  if (typeof raw !== "object" || raw === null) {
+    return err({ kind: "invalid_gate_toml", detail: "[rollout] must be a table" });
+  }
+  const table = raw as {
+    enabled?: unknown;
+    flag_name?: unknown;
+    metric_ref?: unknown;
+    threshold?: unknown;
+    poll_interval_ms?: unknown;
+  };
+  const enabled = table.enabled === undefined ? defaults.enabled : table.enabled === true;
+  const flagName =
+    typeof table.flag_name === "string" && table.flag_name.length > 0
+      ? table.flag_name
+      : defaults.flagName;
+  const metricRef =
+    typeof table.metric_ref === "string" && table.metric_ref.length > 0
+      ? table.metric_ref
+      : defaults.metricRef;
+  const threshold =
+    typeof table.threshold === "number" && table.threshold >= 0
+      ? table.threshold
+      : table.threshold === undefined
+        ? defaults.threshold
+        : null;
+  if (threshold === null) {
+    return err({ kind: "invalid_gate_toml", detail: "[rollout].threshold must be >= 0" });
+  }
+  const pollIntervalMs =
+    typeof table.poll_interval_ms === "number" && table.poll_interval_ms > 0
+      ? table.poll_interval_ms
+      : table.poll_interval_ms === undefined
+        ? defaults.pollIntervalMs
+        : null;
+  if (pollIntervalMs === null) {
+    return err({
+      kind: "invalid_gate_toml",
+      detail: "[rollout].poll_interval_ms must be a positive number",
+    });
+  }
+  return ok({ enabled, flagName, metricRef, threshold, pollIntervalMs });
+};
+
 interface OrchestratorTomlSections {
   readonly door?: unknown;
   readonly tiers?: unknown;
   readonly budget?: unknown;
   readonly hitl?: unknown;
+  readonly rollout?: unknown;
+  readonly governance?: unknown;
 }
 
 export const defaultOrchestratorConfig = (): OrchestratorConfig => ({
@@ -288,6 +348,14 @@ export const defaultOrchestratorConfig = (): OrchestratorConfig => ({
     killSwitchTokens: 500_000,
   },
   hitl: { twoWaySampleRate: 0 },
+  rollout: {
+    enabled: false,
+    flagName: "",
+    metricRef: "",
+    threshold: 0,
+    pollIntervalMs: 60_000,
+  },
+  governance: defaultGovernancePolicy(),
 });
 
 /** Parse orchestrator sections from gate.toml text — fail-closed, no partial config. */
@@ -337,11 +405,21 @@ export const parseOrchestratorToml = (
   const hitl = parseHitl(parsed.hitl);
   if (!hitl.ok) return hitl;
 
+  const rollout = parseRollout(parsed.rollout);
+  if (!rollout.ok) return rollout;
+
+  const governance = parseGovernanceSection(parsed.governance);
+  if (!governance.ok) {
+    return err({ kind: "invalid_gate_toml", detail: governance.error.detail });
+  }
+
   return ok({
     door: { pathPatterns: pathPatterns.value, tagPatterns: tagPatterns.value },
     tiers: tiers.value,
     budget: budget.value,
     hitl: hitl.value,
+    rollout: rollout.value,
+    governance: governance.value,
   });
 };
 

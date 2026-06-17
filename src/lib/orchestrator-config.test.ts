@@ -107,6 +107,39 @@ session_tokens = -1
     expect(result.error.kind).toBe("invalid_budget");
   });
 
+  test("missing rollout section defaults to disabled", () => {
+    const config = must(parseOrchestratorToml(""));
+    expect(config.rollout.enabled).toBe(false);
+  });
+
+  test("valid rollout section parses", () => {
+    const config = must(
+      parseOrchestratorToml(`
+[rollout]
+enabled = true
+flag_name = "feature-x"
+metric_ref = "error_rate"
+threshold = 0.05
+poll_interval_ms = 30000
+`),
+    );
+    expect(config.rollout).toEqual({
+      enabled: true,
+      flagName: "feature-x",
+      metricRef: "error_rate",
+      threshold: 0.05,
+      pollIntervalMs: 30_000,
+    });
+  });
+
+  test("invalid rollout threshold fails closed", () => {
+    const result = parseOrchestratorToml(`
+[rollout]
+threshold = -1
+`);
+    expect(result.ok).toBe(false);
+  });
+
   test("loads from worktree gate.toml path", () => {
     const root = mkdtempSync(join(tmpdir(), "orchestrator-gate-toml-"));
     mkdirSync(join(root, ".orchestrator"), { recursive: true });

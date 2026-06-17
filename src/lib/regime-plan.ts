@@ -1,4 +1,5 @@
 import { type DoorClassification, type Regime, regimeForDoor } from "../domain/door";
+import { EXPAND_CONTRACT_PHASES, type ExpandContractPhase } from "./expand-contract";
 import type { OracleCoverageDecision } from "./oracle-coverage";
 
 /**
@@ -18,6 +19,7 @@ export type PipelinePhase =
   | "spec"
   | "plan"
   | "spike"
+  | ExpandContractPhase
   | "oracle_authoring"
   | "implement"
   | "validate";
@@ -39,6 +41,8 @@ export interface RegimePlanOptions {
    * Ignored in the full regime, which always authors a dedicated oracle.
    */
   readonly oracleCovered?: boolean;
+  /** Full regime only: insert expand/contract phases before oracle (D9, W3). */
+  readonly stateful?: boolean;
 }
 
 /** The non-collapsible floor present in every regime (D25). */
@@ -54,6 +58,10 @@ export const planForRegime = (regime: Regime, options: RegimePlanOptions = {}): 
 
   if (options.hasOpenQuestion === true) {
     phases.push("spike");
+  }
+
+  if (regime === "full" && options.stateful === true) {
+    phases.push(...EXPAND_CONTRACT_PHASES);
   }
 
   // Full always authors a dedicated oracle; minimal authors one only when the
@@ -73,6 +81,7 @@ export const planForRegime = (regime: Regime, options: RegimePlanOptions = {}): 
 
 export interface RegimeSelectionOptions {
   readonly hasOpenQuestion?: boolean;
+  readonly stateful?: boolean;
 }
 
 /**
@@ -91,5 +100,6 @@ export const selectRegimePlan = (
   return planForRegime(regime, {
     oracleCovered: regime === "minimal" && coverage.kind === "reuse",
     ...(options.hasOpenQuestion === undefined ? {} : { hasOpenQuestion: options.hasOpenQuestion }),
+    ...(options.stateful === undefined ? {} : { stateful: options.stateful }),
   });
 };

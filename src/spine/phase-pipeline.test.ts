@@ -9,7 +9,7 @@ import { defaultOrchestratorConfig } from "../lib/orchestrator-config";
 import { planForRegime } from "../lib/regime-plan";
 import { skeletonGateConfig, writePassingGateFixture } from "../lib/skeleton-gate-fixture";
 import { type PreparedWorktreeGate, prepareWorktreeGate } from "./gate-invocation";
-import { type PhaseTask, runLineagePipeline } from "./phase-pipeline";
+import { type PhaseTask, runLineageForRegime, runLineagePipeline } from "./phase-pipeline";
 
 const must = <T>(result: { ok: boolean; value?: T; error?: unknown }): T => {
   if (!result.ok) throw new Error(JSON.stringify(result.error));
@@ -145,6 +145,49 @@ describe("W5 — phase pipeline runner (D §8, D19)", () => {
       "implement",
       "validate",
     ]);
+    expect(outcome.terminal.kind).toBe("awaiting_human");
+  });
+
+  test("a stateful one-way change runs expand/contract phases before implement (W3, D9)", async () => {
+    const gate = await prepare();
+    const outcome = must(
+      await runLineageForRegime({
+        repoRoot,
+        gate,
+        lineage: makeLineageFor("stateful", must(classifyOneWay(["persisted_schema"]))),
+        config,
+        coverage: { kind: "reuse", coveredCriteria: ["c1"] },
+        tasks: {
+          spec: {
+            prompt: "Author the acceptance target.",
+            writes: [{ path: "src/domain/w5-spec-stateful.md", content: "# spec\n" }],
+          },
+          plan: {
+            prompt: "Decompose into work items.",
+            writes: [{ path: "src/domain/w5-plan-stateful.md", content: "# plan\n" }],
+          },
+          oracle_authoring: {
+            prompt: "Author the frozen oracle.",
+            writes: [
+              {
+                path: "tests/w5-stateful.oracle.test.ts",
+                content:
+                  'import { test, expect } from "bun:test";\ntest("x", () => expect(1).toBe(1));\n',
+              },
+            ],
+          },
+          implement: featureWrite,
+        },
+        oraclePaths: ["tests/w5-stateful.oracle.test.ts"],
+        ids: idsFor("stateful"),
+        at: ts,
+      }),
+    );
+
+    const phaseNames = outcome.phases.map((p) => p.phase);
+    expect(phaseNames).toContain("expand");
+    expect(phaseNames).toContain("contract");
+    expect(phaseNames.indexOf("contract")).toBeLessThan(phaseNames.indexOf("implement"));
     expect(outcome.terminal.kind).toBe("awaiting_human");
   });
 

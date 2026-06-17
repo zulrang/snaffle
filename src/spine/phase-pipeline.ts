@@ -11,6 +11,11 @@ import { AGENT_DEFINITIONS } from "../lib/agents";
 import type { BudgetGovernorState } from "../lib/budget-governor";
 import { createBudgetGovernor } from "../lib/budget-governor";
 import { type DecisionQueueStore, enqueueAwaitingHuman } from "../lib/decision-queue";
+import {
+  EXPAND_CONTRACT_PHASES,
+  type ExpandContractPlan,
+  emitExpandContractPlan,
+} from "../lib/expand-contract";
 import { classifyAndRoute } from "../lib/failure-classifier";
 import {
   initialRouterState,
@@ -21,6 +26,7 @@ import type { OracleCoverageDecision } from "../lib/oracle-coverage";
 import type { OracleFreezeRecord } from "../lib/oracle-freeze";
 import type { OrchestratorConfig } from "../lib/orchestrator-config";
 import { type PipelinePhase, type RegimePlan, selectRegimePlan } from "../lib/regime-plan";
+import { detectStatefulChange } from "../lib/stateful-change";
 import { shouldSampleTwoWayMerge, twoWaySampleRateFromConfig } from "../lib/two-way-sampler";
 import { validateAgentResult } from "../lib/validate-agent-result";
 import { applyWritesToWorktree } from "../lib/worktree-writes";
@@ -85,6 +91,8 @@ export interface LineagePipelineInput {
   /** When set, parks enqueue a durable human decision (W5/W9). */
   readonly decisionQueue?: DecisionQueueStore;
   readonly decisionId?: DecisionId;
+  /** Present when W1 detects a stateful change (D9, W3). */
+  readonly expandContractPlan?: ExpandContractPlan;
 }
 
 export interface PipelinePhaseRecord {
@@ -180,6 +188,9 @@ const humanHoldTransition = (reviewed: StateTransition): StateTransition => ({
   to: { status: "awaiting_human" },
 });
 
+const isExpandContractPhase = (phase: PipelinePhase): boolean =>
+  (EXPAND_CONTRACT_PHASES as readonly string[]).includes(phase);
+
 /** Run a lineage through its regime's phase sequence to a control-plane terminal. */
 export const runLineagePipeline = async (
   input: LineagePipelineInput,
@@ -238,6 +249,27 @@ export const runLineagePipeline = async (
       );
       if (!advanced.ok) return advanced;
       budget = advanced.value;
+      continue;
+    }
+
+    if (isExpandContractPhase(phase)) {
+      if (input.expandContractPlan === undefined) {
+        return err({ kind: "missing_task", phase });
+      }
+      const spec = input.expandContractPlan.phases.find((p) => p.phase === phase);
+      if (spec === undefined) {
+        return err({ kind: "missing_task", phase });
+      }
+      const applied = applyWritesToWorktree(input.gate.worktreeRoot, [
+        {
+          path: spec.artifactPath,
+          content: `${JSON.stringify({ phase: spec.phase, doneWhen: spec.doneWhen }, null, 2)}\n`,
+        },
+      ]);
+      if (!applied.ok) {
+        return err({ kind: "worktree_apply", detail: JSON.stringify(applied.error) });
+      }
+      phases.push({ phase, outcome: "recorded" });
       continue;
     }
 
@@ -426,8 +458,29 @@ export interface RegimePipelineInput extends Omit<LineagePipelineInput, "plan"> 
 export const runLineageForRegime = async (
   input: RegimePipelineInput,
 ): Promise<Result<LineagePipelineOutcome, PipelineError>> => {
+  const statefulKind = detectStatefulChange({
+    scope: input.lineage.declaredScope,
+    door: input.lineage.door,
+  });
+  const expandPlan =
+    statefulKind === "stateful"
+      ? emitExpandContractPlan({
+          lineageId: input.lineage.lineageId,
+          statefulKind,
+          frozenAt: input.at,
+        })
+      : undefined;
+  if (expandPlan !== undefined && !expandPlan.ok) {
+    return err({ kind: "unexpected_terminal", detail: expandPlan.error.kind });
+  }
+
   const plan = selectRegimePlan(input.lineage.door, input.coverage, {
     ...(input.hasOpenQuestion === undefined ? {} : { hasOpenQuestion: input.hasOpenQuestion }),
+    ...(statefulKind === "stateful" ? { stateful: true } : {}),
   });
-  return runLineagePipeline({ ...input, plan });
+  return runLineagePipeline({
+    ...input,
+    plan,
+    ...(expandPlan?.ok ? { expandContractPlan: expandPlan.value } : {}),
+  });
 };

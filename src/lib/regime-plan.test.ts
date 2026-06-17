@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { classifyOneWay, classifyTwoWay, regimeForDoor } from "../domain/door";
+import { EXPAND_CONTRACT_PHASES } from "./expand-contract";
 import { INTEGRITY_FLOOR_PHASES, planForRegime } from "./regime-plan";
 
 const must = <T>(result: { ok: boolean; value?: T; error?: unknown }): T => {
@@ -60,5 +61,20 @@ describe("P4/S4 — regime phase plan (D25)", () => {
     expect(planForRegime(regimeForDoor(must(classifyOneWay(["money"])))).terminal).toBe(
       "await_human",
     );
+  });
+
+  test("full + stateful inserts expand/contract phases before oracle (W3, D9)", () => {
+    const plan = planForRegime("full", { stateful: true });
+    for (const phase of EXPAND_CONTRACT_PHASES) {
+      expect(plan.phases).toContain(phase);
+    }
+    expect(plan.phases.indexOf("contract")).toBeLessThan(plan.phases.indexOf("oracle_authoring"));
+  });
+
+  test("minimal regime never inserts expand/contract phases", () => {
+    const plan = planForRegime("minimal", { oracleCovered: true, stateful: true });
+    for (const phase of EXPAND_CONTRACT_PHASES) {
+      expect(plan.phases).not.toContain(phase);
+    }
   });
 });
