@@ -34,4 +34,28 @@ describe("provenance-hash", () => {
     });
     expect(verified.ok).toBe(true);
   });
+
+  test("content hash binds Pi SDK tool versions, not only the model ref", () => {
+    const context = stubGenerationContextFromTask({
+      writes: [{ path: "src/domain/gate.ts", content: "// edit\n" }],
+    });
+    const baseInputs = {
+      model: { provider: "orchestrator-stub", model: "orchestrator-stub-v1", version: "0.74.0" },
+      promptHash: computePromptHash("Apply edit"),
+      contextHash: computeContextHash(context),
+      planHash: hashCanonicalJson({ phase: 1, kind: "skeleton" }),
+      temperature: 0,
+      toolVersions: { "pi-agent-core": "0.74.0", "pi-ai": "0.74.0" },
+    };
+    const contentHash = computeGenerationContentHash(baseInputs);
+
+    const sdkTamper = verifyGenerationInputs(
+      { ...baseInputs, toolVersions: { "pi-agent-core": "9.9.9", "pi-ai": "0.74.0" } },
+      contentHash,
+      { prompt: "Apply edit", context },
+    );
+    expect(sdkTamper.ok).toBe(false);
+    if (sdkTamper.ok) throw new Error("expected SDK tamper mismatch");
+    expect(sdkTamper.error.kind).toBe("content_hash_mismatch");
+  });
 });

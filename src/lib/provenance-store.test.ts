@@ -10,7 +10,9 @@ import {
   buildGenerationInputs,
   computeContextHash,
   computeGenerationContentHash,
+  computePromptHash,
   stubGenerationContextFromTask,
+  verifyGenerationInputs,
 } from "./provenance-hash";
 import { openProvenanceStore } from "./provenance-store";
 
@@ -67,8 +69,21 @@ describe("W7 — SQLite provenance store (D10)", () => {
     must(store.insert(record, { prompt, context }));
 
     const byId = must(store.getByGenerationId(generationId));
-    expect(byId?.record.generationId).toBe(generationId);
-    expect(byId?.record.inputs.contextHash).toBe(computeContextHash(context));
+    if (byId === undefined) throw new Error("expected stored generation");
+    expect(byId.record.generationId).toBe(generationId);
+    expect(byId.record.inputs.contextHash).toBe(computeContextHash(context));
+    expect(byId.record.inputs.promptHash).toBe(computePromptHash(prompt));
+    expect(byId.record.inputs.toolVersions).toEqual({
+      "pi-agent-core": "0.74.0",
+      "pi-ai": "0.74.0",
+    });
+
+    const handVerified = verifyGenerationInputs(
+      byId.record.inputs,
+      byId.record.contentHash,
+      byId.material,
+    );
+    expect(handVerified.ok).toBe(true);
 
     const byInvocation = must(store.getByInvocationId(invocationId));
     expect(byInvocation?.record.generationId).toBe(generationId);
