@@ -51,12 +51,7 @@ describe("W3 — capability grant + path protection (D6)", () => {
     ]);
 
     expect(outcome.agentResult.outcome).toBe("refused");
-    expect(outcome.agentResult.edits).toEqual([
-      {
-        path: must(parseRepoPath("src/domain/allowed.ts")),
-        operation: "modify",
-      },
-    ]);
+    expect(outcome.agentResult.edits).toEqual([]);
     expect(isScopeCompliant(outcome.agentResult, grant.scope)).toBe(true);
   });
 

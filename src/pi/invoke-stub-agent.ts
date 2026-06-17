@@ -14,7 +14,7 @@ import type { AgentOutcome, AgentResult, FileEdit } from "../domain/agent";
 import type { InvocationId } from "../domain/ids";
 import { parseRepoPath, type RepoPath, type WriteScope } from "../domain/scope";
 import { err, ok, type Result } from "../domain/shared";
-import { createBeforeToolCallGuard } from "../lib/scope-guard";
+import { checkMutationAllowed, createBeforeToolCallGuard } from "../lib/scope-guard";
 import { createCachedStreamFn, type PromptCacheHint } from "./prompt-cache";
 
 /** Pinned stub model used by S1 — deterministic, no network, no interactive session. */
@@ -121,6 +121,7 @@ export const createStubFauxEnvironment = (): {
 const createScopedWriteTool = (
   edits: FileEdit[],
   totalWrites: number,
+  scope: WriteScope | undefined,
   onWriteAllowed?: (path: RepoPath, toolName: string) => void,
 ): AgentTool<typeof writeSchema> => ({
   name: "scoped_write",
@@ -131,6 +132,11 @@ const createScopedWriteTool = (
   execute: async (_toolCallId, params: WriteParams) => {
     const parsed = parseRepoPath(params.path);
     if (!parsed.ok) throw new Error(parsed.error.kind);
+
+    if (scope) {
+      const denial = checkMutationAllowed(scope, "scoped_write", params.path);
+      if (denial) throw new Error(denial.reason);
+    }
 
     edits.push({ path: parsed.value, operation: "modify" });
     onWriteAllowed?.(parsed.value, "scoped_write");
@@ -189,7 +195,7 @@ const runStubAgent = async (
         systemPrompt: "You are a deterministic stub agent for the orchestrator spine.",
         model,
         thinkingLevel: "off",
-        tools: [createScopedWriteTool(edits, writes.length, options.onWriteAllowed)],
+        tools: [createScopedWriteTool(edits, writes.length, options.scope, options.onWriteAllowed)],
       },
       streamFn,
       toolExecution: "sequential",
@@ -245,13 +251,11 @@ const runStubAgent = async (
             ? `Stub edit applied to ${writes[0]?.path ?? "unknown"}`
             : `Stub edits applied (${edits.length}/${writes.length} writes)`;
 
-    if (status === "failed") {
-      return err({ kind: "agent_error", detail: summary });
-    }
+    const evidenceEdits = status === "succeeded" ? edits : [];
 
     return ok({
       status,
-      edits,
+      edits: evidenceEdits,
       metadata: {
         provider: model.provider,
         modelId: model.id,
