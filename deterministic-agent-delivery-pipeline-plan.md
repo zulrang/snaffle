@@ -239,3 +239,76 @@ Four spikes (two M agent/oracle, two S prefix/regime) plus roughly four S and fo
 ### Dependency order
 
 S1 → W1 → W2 ; S2 → W4 ; S3 → W3 ; S4 → W6 | W2 + W4 → W5 → W6 → W9 ; W7 and W8 are parallel/cut.
+
+---
+
+## 6. Phase 5 — Lineage Concurrency + HITL (detailed)
+
+Realizes spec **D11** (batched human decision queue) and **D20** (frozen acceptance target; a lineage is a spec requirement; bounded, conflict-scoped concurrency). Absorbs three deferred Phase-3/4 cut lines: the durable spend ledger, the operator-pause CLI surface, and the `commit-pr` skill body / PR adapter.
+
+**Goal.** Run up to *N* lineages in parallel — isolated worktrees, under the single writer (D23) — admitting a lineage immediately unless its *declared* scope conflicts with an in-flight one, in which case it is back-pressured behind **only** the conflictor (non-conflicting work is never blocked). Snapshot each lineage's acceptance target to an immutable hashed store on entry, and judge all acceptance against that snapshot, not live source. Convert human review from O(diffs) to O(decisions): a batched queue holding door overrides, one-way spec/cut-line approvals, spike resolutions, and a risk-weighted *sample* of two-way diffs — surfaced over a GitHub PR adapter plus a local CLI. Closure is a positive decision, never the incidental emptying of a queue. *Without* yet adding expand/contract or the post-launch metric gate (Phase 6) or a stochastic grader (D24, deferred). Tests stay offline: faux provider for agents, injected/dry-run client for the PR adapter.
+
+**Why this shape.** Phase 4 proved one lineage end-to-end; the remaining bets are *throughput* and the *human surface*. The scariest are (1) does bounded-N concurrency actually run safely in isolated worktrees under one lock, and (2) does deterministic conflict admission keep non-conflicting work live without deadlock — these are liveness/correctness risks, not assembly. The HITL durable queue + resume is the other load-bearing contract: "queue empty ≠ goal met," and a one-way door must never merge without a positive decision. So front-load concurrency, conflict admission, and the durable decision/resume contract; the snapshotter, sampler, PR adapter, and CLI are assembly on top. The D20 predicates (`scopesOverlap`, `lineagesConflict`) and the `await_human` terminal already exist but are **unwired** — Phase 5 is largely wiring proven pure logic into a scheduler and a queue.
+
+**Current-state anchors.**
+- Single-lineage pipeline is complete: `runLineageForRegime` / `runLineagePipeline` (`src/spine/phase-pipeline.ts`); `await_human` is a real terminal but nothing consumes it.
+- D20 predicates exist, pure and tested but **unused at runtime**: `scopesOverlap` (`src/domain/scope.ts`), `lineagesConflict` (`src/domain/lineage.ts`).
+- Per-lineage worktrees exist and can coexist at the git level: `createDetachedWorktree` (`src/lib/worktree.ts`), `prepareWorktreeGate` (`src/spine/gate-invocation.ts`); nothing tracks multiple concurrently. `WorktreeId` is defined but unused.
+- Single-writer lock exists and is process/workspace-level: `acquireWriterLock`, `attachObserver` (`src/lib/ownership-lock.ts`) — one process can hold the lock and schedule N lineages beneath it.
+- `freezeAcceptanceTarget` (`src/domain/lineage.ts`) validates criteria but does **not** compute `targetHash` (callers hand-supply it) — the lib snapshotter is missing. `oracle-freeze.ts` + `hashUtf8` are the pattern to mirror.
+- Provenance store (SQLite) exists (`src/lib/provenance-store.ts`); no HITL/lineage-state schema. `RoutingAction` has `route_to_human` (distinct from the D11 merge hold).
+- The default CLI still runs `runSkeletonLineage`, not the regime pipeline (`src/cli.ts`) — a gap to close.
+- **Missing:** scheduler, runtime conflict admission, lib acceptance snapshotter, durable HITL queue + resume, two-way sampler, GitHub PR adapter + commit scaffolder, decision CLI, `DecisionId`/`BatchId` ids.
+
+### Spikes (retire uncertainty first; throwaway-ish code)
+
+**S1 — Bounded-N concurrent worktrees under one lock.** (M) Run N isolated detached worktrees in parallel beneath a single held writer lock, each executing an independent gate subprocess, without cross-contamination. *done_when:* a test acquires the lock once, runs N concurrent worktree+gate runs whose results are independent and correct, and tears every worktree down on both success and failure; a second process still fails fast on the lock.
+
+**S2 — Deterministic conflict admission + back-pressure.** (M) A scheduler admits non-conflicting lineages immediately and back-pressures a conflicting candidate behind **only** its conflictor, releasing it when the conflictor completes — no deadlock, deterministic order. *done_when:* fixtures show a non-conflicting lineage admitted while a conflictor is in-flight, a conflicting lineage queued behind only its conflictor (other in-flight work irrelevant), liveness (non-conflicting never blocked), and deterministic admission order for a fixed input.
+
+**S3 — Durable decision queue + resume.** (M) An `awaiting_human` lineage enqueues a decision item to a durable store; a recorded approval resumes to a control-plane merge and a rejection closes the lineage; "queue empty" is not "goal met." *done_when:* a test enqueues on `awaiting_human`, a recorded approval drives the merge transition (via the control plane, not the queue), a rejection yields `rejected`, and pending-decision count is queryable and independent of lineage closure state.
+
+**S4 — Offline-testable PR adapter boundary.** (S) The PR adapter renders a commit + PR body from provenance and posts status through an injected client, with no live network in tests (dry-run), mirroring the faux-provider discipline. *done_when:* a dry-run client receives a well-formed commit+PR payload derived from a provenance record; an adapter failure degrades to the local queue and never blocks or fakes the gate.
+
+### Work items
+
+**W1 — Acceptance-target snapshotter (D20).** (M; S-none) A `lib/` snapshotter that computes `targetHash` from the criteria and persists an immutable hashed snapshot under `.orchestrator/`; acceptance judges against the snapshot, not live source. *done_when:* identical criteria hash identically and differing criteria diverge; the snapshot is retained on disk and reloadable; `freezeAcceptanceTarget` callers no longer hand-supply a hash; tampering with the snapshot is detected.
+
+**W2 — Decision/lineage id + state types (D11, D20).** (S) Add `DecisionId` and `BatchId` smart constructors; put the unused `WorktreeId`/`AttemptId` to work; give the `admitted` `LineageState` a producer. *done_when:* each new id has a passing smart-constructor test; `admitted` is produced by the scheduler on admission and is distinct from `running`.
+
+**W3 — Conflict admission in `lib/` (D20).** (M; S2, W2) `admit(candidate, inFlight) → { admitted } | { back_pressured_behind: LineageId }` over `lineagesConflict`; the sole admission entry point for the scheduler. *done_when:* fixtures cover admit, single-conflict back-pressure, many-in-flight (blocked behind only conflictors), and that completing the conflictor admits the waiter; declared scope (not inferred diff) is the input.
+
+**W4 — Bounded-N lineage scheduler (D20, D23).** (L; S1, S2, W3) A scheduler that runs ≤N lineages concurrently in isolated worktrees under one writer lock, using W3 for admission, evaluating completion per lineage. *done_when:* an integration test runs N+M lineages at parallelism N — non-conflicting run concurrently, a conflicting pair serializes, all reach terminals, same-lineage remediation stays actionable, and the writer lock is held exactly once for the batch.
+
+**W5 — Batched HITL decision queue (D11).** (L; S3, W2) A durable (SQLite) queue that enqueues on `awaiting_human`, door override, and spike resolution; `recordDecision(approve | reject | override)` resumes or closes the lineage through the control plane. *done_when:* `awaiting_human` enqueues exactly one item; approve → merge transition, reject → `rejected`; pending count is O(decisions) and independent of closure; closure is a positive decision (draining the queue is not completion).
+
+**W6 — Risk-weighted two-way sampling (D11).** (S; W5) A deterministic sampler that selects which two-way merges to enqueue for a human sample; unsampled two-way auto-merges. *done_when:* sample rate is config-driven; selection is deterministic for a fixed lineage id/seed; an unsampled two-way auto-merges while a sampled one parks in the queue.
+
+**W7 — GitHub PR adapter + commit scaffolder (D11 surface).** (M; S4) Render the commit message + PR body from provenance, create/update the PR, and post gate status through an injected client; lands the deferred `commit-pr` skill body. *done_when:* the dry-run client receives a well-formed commit+PR payload from provenance; a remote failure degrades to the local queue, never blocking the gate; no live network in CI. *(Live `gh`/Octokit integration is cut-line.)*
+
+**W8 — Decision CLI + default-path switch.** (S; W5) `orchestrator decisions list | approve | reject` over the queue, and wire `orchestrator run` to `runLineageForRegime`, retiring the skeleton from the default CLI. *done_when:* the CLI lists pending decisions, approve merges and reject closes the named lineage, and `orchestrator run` drives the regime pipeline (skeleton reachable only behind an explicit legacy flag).
+
+**W9 — Spine concurrency integration loop (W1–W8).** (M) Compose snapshotter + scheduler + admission + per-lineage pipeline + queue under one lock. *done_when:* an integration test drives a batch where non-conflicting lineages merge in parallel, a conflicting pair serializes, a one-way lineage parks and merges only after a queued approval, a sampled two-way parks, and an unsampled two-way auto-merges — all under a single writer lock, judged against frozen snapshots.
+
+**W10 — Phase 5 acceptance + checklist.** (S; W1–W9) Adversarial AC mirroring Phases 2–4; CI green under Node. *done_when:* `phase5-acceptance-checklist.md` exists; `bun run check` and `npm run check:node` green; ≥1 test per spike S1–S4 and work items W1–W9.
+
+### Cut lines (shed in this order if time runs short)
+
+1. **D26 cache-affinity scheduling tiebreak (W4)** — keep deterministic FIFO admission; add prefix-affinity ordering later. Not load-bearing for correctness.
+2. **Live GitHub integration (W7)** — keep the dry-run/injected client + local decision queue; defer real `gh`/Octokit + status checks to a follow-up.
+3. **Decision TUI (W8)** — keep the plain `list/approve/reject` CLI.
+4. **Risk-model sophistication in two-way sampling (W6)** — keep a flat, deterministic config sample rate; richer risk weighting later. Integrity (one-way always parks) is unaffected.
+
+**Non-cuttable integrity floor (D11, D20, D23):** the single writer lock holds across all N lineages (D23); the acceptance target is snapshotted + hashed on entry and all acceptance judges against the snapshot, not live source (D20); conflict admission is deterministic and scope-declared — non-conflicting work is never blocked, a conflictor back-pressures only its overlap (D20); one-way doors never auto-merge — they park in the human queue until a positive decision (D5/D11); closure is a positive decision, not queue-drain (D20); every per-lineage gate / scope / oracle-freeze / control-plane-transition / provenance floor from Phases 1–4 is unchanged.
+
+### Exit criteria
+
+W9/W10 green in CI under Node; S1–S4 each demonstrated by a passing test; the scheduler runs bounded-N with deterministic conflict admission (non-conflicting parallel, conflicting serialized) under one writer lock; a one-way lineage merges only after a queued human approval, and a rejection closes it; a sampled two-way parks while an unsampled two-way auto-merges; acceptance is judged against the frozen snapshot, never live source; the default CLI drives the regime pipeline. At that point throughput and the human surface are both bounded, and Phase 6 (stateful changes, rollout, governance) can build on the scheduler and the decision queue.
+
+### Estimate
+
+Four spikes (three M concurrency/queue, one S adapter) plus roughly three S and seven M/L work items. Cost is dominated by the bounded-N scheduler + deterministic conflict admission (S1/S2/W3/W4) and the durable HITL queue + resume (S3/W5) — not the snapshotter, sampler, PR adapter, or CLI.
+
+### Dependency order
+
+S1 → W4 ; S2 → W3 → W4 ; W2 → W3 + W5 ; W1 ‖ (independent) ; S3 → W5 → W6 ; S4 → W7 | W4 + W5 → W9 ; W8 → W9 ; W10 last. (W7 live integration and the W4 affinity tiebreak are cut-line.)
