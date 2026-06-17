@@ -4,7 +4,7 @@ A deterministic control plane (the **spine**) that drives stochastic coding agen
 
 See [`deterministic-agent-delivery-pipeline-spec.md`](./deterministic-agent-delivery-pipeline-spec.md) for the full spec and [`deterministic-agent-delivery-pipeline-plan.md`](./deterministic-agent-delivery-pipeline-plan.md) for the build plan.
 
-> **Status:** Phase 1 (walking skeleton) — in progress. Domain model, Pi spikes (S1, S2), W2–W7 are green; W8 comes next.
+> **Status:** Phase 1 (walking skeleton) — complete. W2–W8 are green; Phase 2+ next.
 
 ## Dependencies
 
@@ -65,6 +65,8 @@ src/
     transition-derivation.ts  Control-plane merge outcome from validated evidence (D19, W6)
     provenance-hash.ts   Content-addressed generation hashing (D10, W7)
     provenance-store.ts  SQLite provenance persistence (D10, D18, W7)
+    skeleton-gate-fixture.ts  Non-recursive worktree gate fixture (W8)
+    worktree-writes.ts   Apply orchestrator-known content into a worktree (W8)
     worktree.ts          Detached git worktrees for isolated gate runs (W5)
     ownership-lock.ts    Single-writer workspace lock (D23) — writer fail-fast, observer attach, stale reclaim
   spine/
@@ -73,6 +75,7 @@ src/
     gate-invocation.ts   W5: isolated worktree PRE/POST gate via shared lib/ runner
     control-plane-transition.ts W6: review evidence and derive state transitions (D19)
     provenance-invocation.ts W7: log stub generation provenance to SQLite
+    skeleton-run.ts    W8: end-to-end walking skeleton command
   pi/
     invoke-stub-agent.ts   S1: headless stub invocation via pi-agent-core + faux model
   extensions/
@@ -113,6 +116,8 @@ Both paths share identical rules; tests prove in-scope writes succeed, out-of-sc
 **W6 — Control-plane transition derivation (D19).** `applyControlPlaneTransition` in `lib/transition-derivation.ts` derives merge/hold/reject outcomes from validated agent results plus POST-gate evidence — never from the result alone. `reviewLineageTransition` in `spine/control-plane-transition.ts` wires lineage context into that review. A red POST-gate holds state; merge requires a green POST-gate review.
 
 **W7 — Minimal provenance (D10).** `logStubGeneration` in `spine/provenance-invocation.ts` logs one content-addressed generation per stub run to SQLite (`.orchestrator/provenance.sqlite`). `lib/provenance-hash.ts` canonicalizes inputs and computes prompt/context/content hashes; `lib/provenance-store.ts` persists records with enough material to recompute and verify the stored context hash on read-back.
+
+**W8 — End-to-end skeleton wiring.** `runSkeletonLineage` in `spine/skeleton-run.ts` composes W2–W7 behind one command: lock → scoped stub agent → worktree apply → PRE/POST gate → control-plane transition → provenance → release. Integration tests prove merge on a trivial two-way change, scope blocking (W3), and POST-gate rejection (W5/W6).
 
 ### Domain modelling principles
 
