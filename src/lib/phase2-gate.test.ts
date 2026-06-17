@@ -2,10 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { ExtensionAPI, ToolCallEvent } from "@earendil-works/pi-coding-agent";
 import type { GateCheckKind } from "../domain/gate";
 import { compareCheckKind, gateOutcome } from "../domain/gate";
 import { GateRunId, LineageId } from "../domain/ids";
 import { makeWriteScope, parseRepoPath } from "../domain/scope";
+import { createOracleProtectionExtension } from "../extensions/oracle-protection";
 import {
   defaultPhase1GateConfig,
   resolveStagesForTier,
@@ -17,10 +19,12 @@ import {
   type GateRunTrace,
   runDeterministicGate,
   runGateForTier,
+  runPreGate,
 } from "./gate-runner";
 import {
   buildOracleFreezeRecord,
   checkOracleMutationAllowed,
+  type OracleFreezeRecord,
   saveOracleFreezeRecord,
 } from "./oracle-freeze";
 import { evaluateToolCallUnderGrant } from "./scope-guard";
@@ -134,12 +138,37 @@ describe("W2 — affected/full tiers (D12)", () => {
 });
 
 describe("W7 — oracle freeze (D7)", () => {
+  const oracleFreezeRel = ".orchestrator/oracle-freeze.json";
+
+  const writeEvent = (path: string): ToolCallEvent => ({
+    type: "tool_call",
+    toolCallId: "tc-oracle-1",
+    toolName: "write",
+    input: { path, content: "tamper" },
+  });
+
+  const installOracleExtensionHandler = (root: string, freeze: OracleFreezeRecord) => {
+    const scope = must(makeWriteScope([must(parseRepoPath("tests"))]));
+    let handler:
+      | ((event: ToolCallEvent) => Promise<{ block?: boolean; reason?: string } | undefined>)
+      | undefined;
+    const pi = {
+      on: (event: string, h: typeof handler) => {
+        if (event === "tool_call") handler = h;
+      },
+    } as ExtensionAPI;
+
+    createOracleProtectionExtension(scope, freeze, root)(pi);
+    if (!handler) throw new Error("oracle protection extension did not register a handler");
+    return handler;
+  };
+
   test("blocks oracle mutation in lib grant evaluation", () => {
     const root = mkdtempSync(join(tmpdir(), "orchestrator-oracle-"));
     mkdirSync(join(root, "tests"), { recursive: true });
     writeFileSync(join(root, "tests/oracle.test.ts"), "frozen", "utf8");
     const freeze = must(buildOracleFreezeRecord(root, ["tests/oracle.test.ts"], Date.now()));
-    must(saveOracleFreezeRecord(root, ".orchestrator/oracle-freeze.json", freeze));
+    must(saveOracleFreezeRecord(root, oracleFreezeRel, freeze));
 
     const scope = must(makeWriteScope([must(parseRepoPath("tests"))]));
     const denial = evaluateToolCallUnderGrant(
@@ -153,6 +182,64 @@ describe("W7 — oracle freeze (D7)", () => {
     expect(checkOracleMutationAllowed(freeze, "write", "tests/oracle.test.ts")?.kind).toBe(
       "oracle_denied",
     );
+
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("oracle_integrity gate stage is red when oracle file hash drifts", async () => {
+    const root = mkdtempSync(join(tmpdir(), "orchestrator-oracle-stage-"));
+    mkdirSync(join(root, "tests"), { recursive: true });
+    writeFileSync(join(root, "tests/oracle.test.ts"), "frozen v1", "utf8");
+    writeFileSync(
+      join(root, "package.json"),
+      JSON.stringify({ scripts: { check: "exit 0" } }),
+      "utf8",
+    );
+
+    const freeze = must(buildOracleFreezeRecord(root, ["tests/oracle.test.ts"], Date.now()));
+    must(saveOracleFreezeRecord(root, oracleFreezeRel, freeze));
+
+    const config = {
+      ...defaultPhase1GateConfig(),
+      stages: [{ kind: "oracle_integrity" as const }],
+      oracleFreezeRel,
+    };
+
+    const preIntact = await runPreGate({
+      gateRunId: must(GateRunId("gate-oracle-intact")),
+      lineageId: must(LineageId("lineage-oracle")),
+      worktreeRoot: root,
+      config,
+    });
+    expect(preIntact.checks[0]).toEqual({ kind: "oracle_integrity", status: "passed" });
+
+    writeFileSync(join(root, "tests/oracle.test.ts"), "tampered", "utf8");
+    const preDrifted = await runPreGate({
+      gateRunId: must(GateRunId("gate-oracle-drift")),
+      lineageId: must(LineageId("lineage-oracle")),
+      worktreeRoot: root,
+      config,
+    });
+    expect(preDrifted.checks[0]?.kind).toBe("oracle_integrity");
+    expect(preDrifted.checks[0]?.status).toBe("failed");
+    expect(preDrifted.checks[0]?.detail).toContain("oracle touched: tests/oracle.test.ts");
+
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("Pi oracle extension blocks frozen oracle writes via the same lib rule", async () => {
+    const root = mkdtempSync(join(tmpdir(), "orchestrator-oracle-ext-"));
+    mkdirSync(join(root, "tests"), { recursive: true });
+    writeFileSync(join(root, "tests/oracle.test.ts"), "frozen", "utf8");
+    const freeze = must(buildOracleFreezeRecord(root, ["tests/oracle.test.ts"], Date.now()));
+    const handler = installOracleExtensionHandler(root, freeze);
+
+    const blocked = await handler(writeEvent("tests/oracle.test.ts"));
+    expect(blocked?.block).toBe(true);
+    expect(blocked?.reason).toContain("frozen and read-only");
+
+    const allowed = await handler(writeEvent("tests/helper.ts"));
+    expect(allowed).toBeUndefined();
 
     rmSync(root, { recursive: true, force: true });
   });

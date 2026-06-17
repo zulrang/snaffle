@@ -72,3 +72,96 @@ W8's integration test is green in CI, and S1, S2, D19, and D23 are each demonstr
 ### Estimate
 
 Two M spikes plus roughly three S and four M work items — a small, single-developer phase whose cost is dominated by the two Pi-integration spikes, not the spine plumbing.
+
+---
+
+## 3. Phase 2 — Deterministic Gate Hardened + Repo Modes (completed)
+
+**Goal.** Replace the single stand-in check with the authoritative multi-stage gate (cheapest-first per D8), running through the **same** PRE/POST code path, with `--affected`/`--full` tiers, characterization-baseline (wrap mode) and greenfield bootstrap, and scope/oracle-integrity enforced as `lib` + a Pi extension. Prove it holds on a real already-red repo (regression-from-baseline) and on a fresh greenfield repo.
+
+**Status.** Complete — commit `e38f352` on `main` (local). `bun run check` (135 tests) and `npm run check:node` green.
+
+### What shipped (pointers)
+
+| Area | Where |
+|------|--------|
+| Multi-stage gate (PRE/POST same path, fail-fast) | `src/lib/gate-runner.ts` |
+| TOML config, `--affected` / `--full` tiers | `src/lib/gate-config.ts` |
+| contract-diff stage | `src/lib/contract-diff.ts` |
+| Wrap-mode baseline (D16) | `src/lib/gate-baseline.ts`, `src/domain/gate.ts` |
+| Greenfield bootstrap | `src/lib/gate-bootstrap.ts` |
+| Oracle freeze + scope grant (D7) | `src/lib/oracle-freeze.ts`, `src/lib/scope-guard.ts`, `src/extensions/oracle-protection.ts` |
+| Node-compat (D17/D18) | `src/lib/spawn.ts`, `src/lib/sqlite.ts`, `scripts/guard-no-bun-native.mjs` |
+| Dual CI | `.github/workflows/check.yml` |
+| Adversarial AC checklist (manual) | `phase2-acceptance-checklist.md` |
+
+Config shape changed from `{ command, checkKind }` to `{ tier, repoMode, stages[] }` with package.json fallback. Deferred per cut lines: `smoke_budget`, `spec_traceability` gate stages.
+
+### Exit criteria (met)
+
+W8 green in CI under Node; contract-diff catches a deliberately reshaped schema; both repo modes (wrap-regression and greenfield) proven; PRE/POST identity holds via `GATE_DETERMINISTIC_ENTRY` trace.
+
+---
+
+## 4. Phase 3 — Classifiers, Routing, Budget, Plan-Freeze (detailed)
+
+**Goal.** Wire the control-plane's decision layer: classify doors and failures deterministically, route retries and tier escalation without uncontrolled model spend, compile and freeze the execution plan before work runs (refusing drift), and enforce a budget circuit breaker between steps. The walking skeleton continues to use the stub agent; real agents and the phase pipeline remain Phase 4.
+
+**Why this shape.** Domain types for door (D5), failure routing (D4), and provenance plan-hash (D21 thin slice) already exist in `src/domain/` — but the spine still hardcodes `classifyTwoWay()`, uses a constant `PHASE1_SKELETON_PLAN` for `planHash`, and has no failure classification or budget enforcement on the loop. The real risks are: (1) a config-driven door classifier that cannot miss one-way doors (Risks §9), (2) failure evidence mapping to the full D4 taxonomy including `apply_failure` and the malformed-verdict guard, (3) plan drift making the control plane itself non-deterministic, and (4) tier routing that stays provider-neutral through `pi-ai` (D18) without hardcoded vendor logic in `lib/`. Front-load those; wiring into the spine is lower uncertainty once `lib/` owns the rules once (D12).
+
+**Current-state anchors.**
+
+- Door/regime/failure routing: pure functions in `src/domain/door.ts`, `src/domain/failure.ts` — tested in `src/domain/domain.test.ts`.
+- Gate config TOML: `src/lib/gate-config.ts` — stage commands only; no door taxonomy or tier mapping yet.
+- Plan hash: `PHASE1_SKELETON_PLAN` constant in `src/lib/provenance-hash.ts` — D21 placeholder.
+- Spine admission: `classifyTwoWay()` hardcoded in `src/spine/phase1-cli.ts`, `skeleton-run.ts`.
+- Pi invocation: faux provider stub in `src/pi/invoke-stub-agent.ts`; tier resolution not yet config-driven.
+
+### Spikes (retire uncertainty first; throwaway-ish code)
+
+**S1 — Config-driven door signals.** (M) Map declared write scope + optional path/tag hints to `OneWayTrigger[]` via TOML-declared patterns (D15), with ambiguous → one-way conservative default. *done_when:* a fixture repo with config declaring `auth`/`money`/etc. path patterns classifies known scopes correctly; an undecidable scope becomes one-way; no trigger literals hardcoded in `lib/` dispatch (only in config fixtures).
+
+**S2 — Failure evidence → verdict.** (M) Deterministically classify gate reds, scope/oracle violations, apply errors, agent `failed`, and infra faults into the full D4 taxonomy; validate the emitted verdict artifact (malformed packet → `malformed` verdict, never acted on). *done_when:* one fixture per category classifies to the expected `FailureCategory`; a deliberately malformed classifier packet routes to human via `routeVerdict`; `apply_failure` routes to `control_plane_repair`, not retry.
+
+**S3 — Plan compile + drift.** (M) Compile gate config + door taxonomy + tier mapping + capability defaults into a single content-addressed `ExecutionPlan`; detect drift when source inputs change after freeze; retain last-good plan. *done_when:* plan hash recomputes from stored inputs; mutating `.orchestrator/gate.toml` (or equivalent) after freeze yields a typed stale-plan error; last-good plan is queryable for inspection/rollback.
+
+**S4 — Provider-neutral tier resolution.** (S) Resolve `light`/`mid`/`heavy` → `{ provider, model, version? }` from TOML through one `lib/` function consumed by the Pi adapter; faux provider proves shape in tests. *done_when:* each tier resolves from config; `escalate_one_tier` bumps exactly one step and stops at heavy; no vendor string appears in `lib/` outside config parsing.
+
+### Work items
+
+**W1 — Orchestrator config loader (D18, D15).** (M; S1, S4) Extend project config beyond gate stages: door path patterns, model tier table, budget limits. Single TOML (e.g. `.orchestrator/config.toml`) or documented sections; fail-closed parse errors. *done_when:* valid TOML yields typed config; absent sections fall back to documented defaults; invalid config returns typed errors, never partial config.
+
+**W2 — Door classifier in `lib/` (D5, D15; S1).** (M; W1) `classifyDoor(scope, hints, config) → DoorClassification` using config patterns; call domain constructors (`classifyOneWay`, `classifyTwoWay`, `classifyAmbiguousAsOneWay`). *done_when:* tests cover each trigger type, two-way default, and ambiguous→one-way; classifier is the only door entry point used by the spine.
+
+**W3 — Failure classifier in `lib/` (D4; S2).** (M) `classifyFailure(evidence) → FailureVerdict` over a typed evidence union (gate report, scope violation, apply error, agent outcome, environment fault). *done_when:* each D4 category has a passing fixture; malformed emitted verdict validates to `malformed`; classifier output always passes through `routeVerdict` before any retry/escalation decision.
+
+**W4 — Failure router + retry policy (D4; W3).** (S; W3) Compose classifier + `routeVerdict` + bounded transient retry (same tier) + single `model_capability` escalation. *done_when:* transient retries cap and stop; second `model_capability` on same lineage does not escalate again; categories that must not spend model budget never invoke the stub/model path.
+
+**W5 — Execution plan compiler + freezer (D21; S3).** (M; W1) `compileExecutionPlan(sources) → FrozenPlan` with content hash; `assertPlanFresh(frozen, liveSources)` refuses stale execution. *done_when:* hash recomputes from canonical JSON; drift after freeze is refused with typed error; last-good plan retained on disk under `.orchestrator/`.
+
+**W6 — Plan hash in provenance (D10, D21; W5).** (S; W5) Replace `PHASE1_SKELETON_PLAN` / `computePlanHash()` with the frozen plan from W5; generation records carry the real plan hash. *done_when:* provenance round-trip stores and recomputes plan hash from frozen plan inputs; skeleton run logs the compiled plan, not the Phase 1 constant.
+
+**W7 — Tier router + Pi adapter wiring (D18; S4, W1).** (M; W4, W6) `resolveModelTier(tier, config) → ModelRef`; spine passes resolved model into stub invocation (faux in tests). Escalation path uses W4's one-step bump. *done_when:* stub invocation metadata reflects config-resolved tier; escalation test proves light→mid (or equivalent) on `model_capability`; provider-neutral — config swap changes model without code change.
+
+**W8 — Budget governor (D22).** (M) In-memory circuit breaker: rolling window, session, and per-change token/cost ceilings evaluated between spine steps; pause carries `source: "budget" | "operator"`; auto-resume clears only budget-owned pauses; kill-switch on hard ceiling. *done_when:* exceeding a limit pauses the lineage; operator pause survives budget auto-resume; runaway retry loop hits kill-switch in a test.
+
+**W9 — Spine integration loop (W2–W8).** (M) Extend skeleton run (or thin Phase 3 CLI): compile+freeze plan at pre-gate; classify door at admission; check budget between steps; on hold/reject classify failure and route (retry/escalate/human/repair/reject) without acting on malformed verdicts. *done_when:* integration test drives a post-gate-red hold through failure classification → transient retry (same tier) and separately → `model_capability` escalation; budget pause stops a looping variant; stale plan blocks start.
+
+**W10 — Phase 3 acceptance + checklist.** (S; W9) Adversarial AC file mirroring Phase 2 pattern; CI green under Node. *done_when:* checklist file exists; `bun run check` and `npm run check:node` green; at least one test per spike S1–S4 and work items W2–W8.
+
+### Cut lines (shed in this order if time runs short)
+
+1. SQLite persistence for budget counters — keep in-memory governor; defer durable spend ledger to Phase 5/6.
+2. Separate `.orchestrator/config.toml` — fold door/tier/budget into existing `gate.toml` sections first.
+3. Full retry loop in W9 — keep classify+route observable in spine; defer automatic re-invocation to Phase 4 when real agents exist.
+4. Operator pause UX — keep budget pause + source tagging; defer CLI/TUI for operator pause to Phase 5 HITL.
+
+**Non-cuttable integrity floor (D25):** config-driven door with ambiguous→one-way default (S1/W2), full D4 taxonomy including `apply_failure` and malformed-verdict guard (S2/W3), plan compile+drift refusal (S3/W5), provider-neutral tier resolution (S4/W7), budget kill-switch with pause-source separation (W8).
+
+### Exit criteria
+
+W9/W10 green in CI under Node; S1–S4 each demonstrated by a passing test; spine no longer hardcodes `classifyTwoWay()` or `PHASE1_SKELETON_PLAN`; failure on post-gate red produces a classified verdict and correct routing action; mutating config after plan freeze refuses execution. At that point escalation and control-plane config are deterministic and Phase 4 (real agents) can build on the router and plan freezer.
+
+### Estimate
+
+Four spikes (one M door, one M failure, one M plan, one S tier) plus roughly two S and eight M work items. Cost is dominated by door signal correctness (S1/W2), failure evidence mapping (S2/W3), and plan drift (S3/W5) — not the spine wiring.
