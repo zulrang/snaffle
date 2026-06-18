@@ -2,19 +2,23 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { classifyOneWay } from "../domain/door";
-import { GateRunId, LineageId, RequirementId, TransitionId } from "../domain/ids";
+import { classifyOneWay, classifyTwoWay } from "../domain/door";
+import { DecisionId, GateRunId, LineageId, RequirementId, TransitionId } from "../domain/ids";
 import { freezeAcceptanceTarget, makeLineage } from "../domain/lineage";
 import { makeWriteScope, parseRepoPath } from "../domain/scope";
 import { parseContentHash, parseTimestamp } from "../domain/shared";
+import { DECISION_DB_DIR, DECISION_DB_FILE, openDecisionQueueStore } from "../lib/decision-queue";
 import { gateSpanPair, openGateSpanStore, SPAN_DB_DIR, SPAN_DB_FILE } from "../lib/gate-spans";
 import { ESCAPE_DB_DIR, ESCAPE_DB_FILE, openOracleEscapeStore } from "../lib/oracle-escape";
 import { defaultOrchestratorConfig } from "../lib/orchestrator-config";
+import { planForRegime } from "../lib/regime-plan";
 import { type RolloutClient, runRolloutGuardrail } from "../lib/rollout-guardrail";
 import { skeletonGateConfig, writePassingGateFixture } from "../lib/skeleton-gate-fixture";
+import { recordDecisionForLineage } from "./decisions-cli";
 import { reportEscapeClusters } from "./escapes-cli";
 import { type PreparedWorktreeGate, prepareWorktreeGate } from "./gate-invocation";
-import { runLineageForRegime } from "./phase-pipeline";
+import { type PhaseTask, runLineageForRegime, runLineagePipeline } from "./phase-pipeline";
+import { gateSpanDbPath } from "./spine-wiring";
 
 const must = <T>(result: { ok: boolean; value?: T; error?: unknown }): T => {
   if (!result.ok) throw new Error(JSON.stringify(result.error));
@@ -27,6 +31,11 @@ const config = defaultOrchestratorConfig();
 const scope = must(
   makeWriteScope([must(parseRepoPath("src/domain")), must(parseRepoPath("src/lib"))]),
 );
+
+const featureWrite = (path: string): PhaseTask => ({
+  prompt: "implement",
+  writes: [{ path, content: `// ${path}\n` }],
+});
 
 describe("W12 — Phase 6 spine rollout integration", () => {
   let prepared: PreparedWorktreeGate | undefined;
@@ -167,5 +176,101 @@ describe("W12 — Phase 6 spine rollout integration", () => {
     }
     expect(must(store.listByLineage(lineageId))).toHaveLength(2);
     store.close();
+  });
+
+  test("auto-merge wires gate spans and post-merge rollout on default pipeline path", async () => {
+    const worktree = must(await prepareWorktreeGate(repoRoot));
+    prepared = worktree;
+    writePassingGateFixture(worktree.worktreeRoot);
+    const gate = { worktreeRoot: worktree.worktreeRoot, config: skeletonGateConfig() };
+    const lineageId = must(LineageId("lineage-w12-rollout"));
+    const rolloutConfig = {
+      ...config,
+      rollout: {
+        enabled: true,
+        flagName: "w12-flag",
+        metricRef: "error_rate",
+        threshold: 0.1,
+        pollIntervalMs: 1000,
+      },
+    };
+    let rolledBack = false;
+
+    const outcome = must(
+      await runLineagePipeline({
+        repoRoot,
+        gate,
+        lineage: makeLineage({
+          lineageId,
+          requirementId: must(RequirementId("req-w12-rollout")),
+          door: classifyTwoWay(),
+          acceptanceTarget: must(
+            freezeAcceptanceTarget({
+              targetHash: must(parseContentHash("d".repeat(64))),
+              criteria: [{ id: "c1", statement: "rollout wiring" }],
+              frozenAt: ts,
+            }),
+          ),
+          declaredScope: scope,
+          createdAt: ts,
+        }),
+        plan: planForRegime("minimal", { oracleCovered: true }),
+        config: rolloutConfig,
+        tasks: { implement: featureWrite("src/lib/w12-rollout.ts") },
+        ids: {
+          invocationBase: "inv-w12-rollout",
+          transitionId: must(TransitionId("tr-w12-rollout")),
+          postGateRunId: must(GateRunId("gate-w12-rollout-post")),
+        },
+        at: ts,
+        rolloutClient: {
+          arm: async () => {},
+          pollMetric: async () => 0.99,
+          rollback: async () => {
+            rolledBack = true;
+          },
+        },
+      }),
+    );
+
+    expect(outcome.terminal.kind).toBe("merged");
+    if (outcome.terminal.kind !== "merged") return;
+    expect(outcome.terminal.rollout?.kind).toBe("rolled_back");
+    expect(rolledBack).toBe(true);
+
+    const spanStore = openGateSpanStore(gateSpanDbPath(repoRoot));
+    expect(must(spanStore.listByLineage(lineageId))).toHaveLength(2);
+    spanStore.close();
+
+    const escapeStore = openOracleEscapeStore(join(repoRoot, ESCAPE_DB_DIR, ESCAPE_DB_FILE));
+    expect(must(escapeStore.listByLineage(lineageId))).toHaveLength(1);
+    escapeStore.close();
+  });
+
+  test("decisions reject records an oracle escape by decision kind", () => {
+    tmpWorkspace = mkdtempSync(join(tmpdir(), "w12-decision-reject-"));
+    const dbPath = join(tmpWorkspace, DECISION_DB_DIR, DECISION_DB_FILE);
+    mkdirSync(dirname(dbPath), { recursive: true });
+    const store = openDecisionQueueStore(dbPath);
+    const lineageId = must(LineageId("L-w12-reject"));
+    must(
+      store.enqueue({
+        decisionId: must(DecisionId("dec-w12-reject")),
+        lineageId,
+        kind: "two_way_sample",
+        door: classifyTwoWay(),
+        enqueuedAt: ts,
+      }),
+    );
+    store.close();
+
+    const recorded = must(recordDecisionForLineage(tmpWorkspace, String(lineageId), "reject"));
+    expect(recorded.nextState).toEqual({ status: "rejected", reason: "human_rejected" });
+
+    const escapeStore = openOracleEscapeStore(join(tmpWorkspace, ESCAPE_DB_DIR, ESCAPE_DB_FILE));
+    const escapes = must(escapeStore.listByLineage(lineageId));
+    expect(escapes).toHaveLength(1);
+    expect(escapes[0]?.source).toBe("sample");
+    escapeStore.close();
   });
 });

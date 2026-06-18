@@ -4,7 +4,7 @@ import { makeLineage } from "../domain/lineage";
 import { makeWriteScope, parseRepoPath } from "../domain/scope";
 import { err, ok, parseTimestamp, type Result } from "../domain/shared";
 import { snapshotAcceptanceTarget } from "../lib/acceptance-snapshot";
-import { defaultOrchestratorConfig } from "../lib/orchestrator-config";
+import { defaultOrchestratorConfig, loadOrchestratorConfig } from "../lib/orchestrator-config";
 import { skeletonGateConfig, writePassingGateFixture } from "../lib/skeleton-gate-fixture";
 import { prepareWorktreeGate } from "./gate-invocation";
 import { type LineagePipelineOutcome, runLineageForRegime } from "./phase-pipeline";
@@ -63,11 +63,14 @@ export const runRegimeLineage = async (
 
   writePassingGateFixture(prepared.value.worktreeRoot);
   try {
+    const loadedConfig = loadOrchestratorConfig(input.repoRoot);
+    const config = loadedConfig.ok ? loadedConfig.value : defaultOrchestratorConfig();
+
     const outcome = await runLineageForRegime({
       repoRoot: input.repoRoot,
       gate: { worktreeRoot: prepared.value.worktreeRoot, config: skeletonGateConfig() },
       lineage,
-      config: defaultOrchestratorConfig(),
+      config,
       coverage: { kind: "reuse", coveredCriteria: ["c1"] },
       tasks: {
         implement: {

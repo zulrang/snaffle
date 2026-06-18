@@ -2,7 +2,7 @@
 
 Adversarial AC mirroring Phases 2–5. Gate: `bun run check` and `npm run check:node`.
 
-Each box names the test that proves it. `bun run check` is green (307 tests).
+Each box names the test that proves it. `bun run check` is green.
 
 ## Spikes (S1–S4)
 
@@ -24,7 +24,7 @@ Each box names the test that proves it. `bun run check` is green (307 tests).
 - [x] **W9** Governance policy pack loader — optional `[governance]` section — `src/lib/governance-policy.test.ts`
 - [x] **W10** Name-branching guardrail — CI script flags stage literal branching — `scripts/guard-name-branching.mjs`
 - [ ] **W11** Durable budget ledger — deferred (Phase 3/6 cut line)
-- [x] **W12** Spine rollout integration loop — stateful + guardrail + escape + spans — `src/spine/phase6-integration.test.ts`
+- [x] **W12** Spine rollout integration loop — stateful + guardrail + escape + spans + default path wiring — `src/spine/phase6-integration.test.ts`, `src/spine/spine-wiring.test.ts`
 - [x] **W13** Phase 6 acceptance checklist — `phase6-acceptance-checklist.md`
 
 ## Non-cuttable integrity floor (D8/D9/D24)

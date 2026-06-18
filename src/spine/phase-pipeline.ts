@@ -26,6 +26,7 @@ import type { OracleCoverageDecision } from "../lib/oracle-coverage";
 import type { OracleFreezeRecord } from "../lib/oracle-freeze";
 import type { OrchestratorConfig } from "../lib/orchestrator-config";
 import { type PipelinePhase, type RegimePlan, selectRegimePlan } from "../lib/regime-plan";
+import type { RolloutClient, RolloutGuardrailOutcome } from "../lib/rollout-guardrail";
 import { detectStatefulChange } from "../lib/stateful-change";
 import { shouldSampleTwoWayMerge, twoWaySampleRateFromConfig } from "../lib/two-way-sampler";
 import { validateAgentResult } from "../lib/validate-agent-result";
@@ -38,6 +39,11 @@ import { invokeAgent } from "./invoke-agent";
 import { runOracleAuthoringPhase } from "./oracle-authoring";
 import type { ScopedWriteAttempt, ScopeEvent } from "./scoped-invocation";
 import { stepBudget } from "./skeleton-run";
+import {
+  dryRunRolloutClient,
+  recordGateReportSpans,
+  runPostMergeRolloutIfEnabled,
+} from "./spine-wiring";
 
 /**
  * W5 — phase pipeline runner (D §8, D19). Generalizes the Phase-1 single-shot
@@ -93,6 +99,8 @@ export interface LineagePipelineInput {
   readonly decisionId?: DecisionId;
   /** Present when W1 detects a stateful change (D9, W3). */
   readonly expandContractPlan?: ExpandContractPlan;
+  /** Injected rollout client; defaults to dry-run when rollout is enabled (W5). */
+  readonly rolloutClient?: RolloutClient;
 }
 
 export interface PipelinePhaseRecord {
@@ -102,7 +110,12 @@ export interface PipelinePhaseRecord {
 }
 
 export type PipelineTerminal =
-  | { readonly kind: "merged"; readonly transition: StateTransition; readonly postGate: GateReport }
+  | {
+      readonly kind: "merged";
+      readonly transition: StateTransition;
+      readonly postGate: GateReport;
+      readonly rollout?: RolloutGuardrailOutcome;
+    }
   | {
       readonly kind: "awaiting_human";
       readonly transition: StateTransition;
@@ -190,6 +203,30 @@ const humanHoldTransition = (reviewed: StateTransition): StateTransition => ({
 
 const isExpandContractPhase = (phase: PipelinePhase): boolean =>
   (EXPAND_CONTRACT_PHASES as readonly string[]).includes(phase);
+
+const finalizeMergedTerminal = async (
+  input: LineagePipelineInput,
+  phases: PipelinePhaseRecord[],
+  transition: StateTransition,
+  postGate: GateReport,
+): Promise<Result<LineagePipelineOutcome, PipelineError>> => {
+  const rollout = await runPostMergeRolloutIfEnabled(
+    input.repoRoot,
+    input.config,
+    input.lineage.lineageId,
+    input.rolloutClient ?? dryRunRolloutClient(),
+  );
+
+  return ok({
+    phases,
+    terminal: {
+      kind: "merged",
+      transition,
+      postGate,
+      ...(rollout === undefined ? {} : { rollout }),
+    },
+  });
+};
 
 /** Run a lineage through its regime's phase sequence to a control-plane terminal. */
 export const runLineagePipeline = async (
@@ -372,6 +409,13 @@ export const runLineagePipeline = async (
       lineageId: input.lineage.lineageId,
     });
 
+    recordGateReportSpans(input.repoRoot, {
+      gateRunId: input.ids.postGateRunId,
+      lineageId: input.lineage.lineageId,
+      startedAt: input.at,
+      report: postGate,
+    });
+
     const reviewed = reviewLineageTransition({
       lineage: input.lineage,
       currentState: runningState,
@@ -421,10 +465,7 @@ export const runLineagePipeline = async (
             },
           });
         }
-        return ok({
-          phases,
-          terminal: { kind: "merged", transition: reviewed.value.transition, postGate },
-        });
+        return finalizeMergedTerminal(input, phases, reviewed.value.transition, postGate);
       }
       if (status === "awaiting_human") {
         enqueueHumanDecision(input, "merge_hold");
@@ -448,6 +489,7 @@ export interface RegimePipelineInput extends Omit<LineagePipelineInput, "plan"> 
   /** Oracle-reuse decision (W6); `reuse` collapses oracle-authoring in the minimal regime. */
   readonly coverage: OracleCoverageDecision;
   readonly hasOpenQuestion?: boolean;
+  readonly rolloutClient?: RolloutClient;
 }
 
 /**
@@ -482,5 +524,6 @@ export const runLineageForRegime = async (
     ...input,
     plan,
     ...(expandPlan?.ok ? { expandContractPlan: expandPlan.value } : {}),
+    ...(input.rolloutClient === undefined ? {} : { rolloutClient: input.rolloutClient }),
   });
 };

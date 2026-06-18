@@ -8,6 +8,7 @@ import {
   type DecisionItem,
   openDecisionQueueStore,
 } from "../lib/decision-queue";
+import { escapeSourceForDecisionKind, recordOracleEscapeAtRepo } from "./spine-wiring";
 
 /**
  * W8 — local CLI surface for the batched human decision queue (D11).
@@ -76,6 +77,16 @@ export const recordDecisionForLineage = (
       decidedAt: at.value,
     });
     if (!recorded.ok) return err({ kind: "queue_error", detail: JSON.stringify(recorded.error) });
+
+    if (command === "reject") {
+      recordOracleEscapeAtRepo(repoRoot, {
+        lineageId: lineageId.value,
+        missedCriterion: item.value.kind,
+        source: escapeSourceForDecisionKind(item.value.kind),
+        at: at.value,
+      });
+    }
+
     return ok(recorded.value);
   } finally {
     store.close();
