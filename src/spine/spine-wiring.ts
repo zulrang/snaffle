@@ -4,6 +4,7 @@ import { type GateReport, gatePassed } from "../domain/gate";
 import type { GateRunId, LineageId } from "../domain/ids";
 import { parseTimestamp, type Timestamp } from "../domain/shared";
 import { gateSpanPair, openGateSpanStore, SPAN_DB_DIR, SPAN_DB_FILE } from "../lib/gate-spans";
+import { createWebhookRolloutClient } from "../lib/live-rollout-client";
 import {
   ESCAPE_DB_DIR,
   ESCAPE_DB_FILE,
@@ -16,6 +17,7 @@ import {
   type RolloutGuardrailOutcome,
   runRolloutGuardrail,
 } from "../lib/rollout-guardrail";
+import { saveLastRollout } from "../lib/rollout-store";
 
 /**
  * Phase 6 spine wiring — gate spans, post-merge rollout, oracle escapes (W5/W6/W8).
@@ -37,6 +39,17 @@ export const dryRunRolloutClient = (): RolloutClient => ({
   pollMetric: async () => 0,
   rollback: async () => {},
 });
+
+export const resolveRolloutClient = (
+  config: OrchestratorConfig,
+  override?: RolloutClient,
+): RolloutClient => {
+  if (override !== undefined) return override;
+  if (config.rollout.adapter === "live" && config.rollout.webhookBaseUrl.length > 0) {
+    return createWebhookRolloutClient({ baseUrl: config.rollout.webhookBaseUrl }, fetch);
+  }
+  return dryRunRolloutClient();
+};
 
 export const recordGateReportSpans = (
   repoRoot: string,
@@ -109,8 +122,17 @@ export const runPostMergeRolloutIfEnabled = async (
   });
   if (!outcome.ok) return undefined;
 
+  const at = parseTimestamp(Date.now());
+  if (at.ok) {
+    saveLastRollout(repoRoot, {
+      lineageId,
+      outcome: outcome.value,
+      recordedAt: at.value,
+      operatorAcknowledged: false,
+    });
+  }
+
   if (outcome.value.kind === "rolled_back") {
-    const at = parseTimestamp(Date.now());
     if (at.ok) {
       recordOracleEscapeAtRepo(repoRoot, {
         lineageId,

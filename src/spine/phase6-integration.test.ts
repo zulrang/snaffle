@@ -188,10 +188,12 @@ describe("W12 — Phase 6 spine rollout integration", () => {
       ...config,
       rollout: {
         enabled: true,
+        adapter: "injected" as const,
         flagName: "w12-flag",
         metricRef: "error_rate",
         threshold: 0.1,
         pollIntervalMs: 1000,
+        webhookBaseUrl: "",
       },
     };
     let rolledBack = false;

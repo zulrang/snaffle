@@ -470,4 +470,4 @@ Four spikes (two M adapter, two S ledger/remediation) plus roughly three S and s
 
 S1 → W1 ; S2 → W2 → W3 ; S3 → W5 → W6 ; S4 → W4 ; W7 ‖ W8 ; W1 + W2 + W5 → W9 → W10.
 
-**Status: not started** (Phase 6 complete at `f1631f6`). Detailed cursor plan: `.cursor/plans/phase_7_production_hardening.plan.md`.
+**Status: in progress** (spikes S1–S4 + W1–W6, W8–W10 shipped; W7 and W6 `apply-criteria` deferred per cut lines). Spine wiring extends rollout store + webhook client resolution. Acceptance in `phase7-acceptance-checklist.md`. `bun run check` green (337 tests).

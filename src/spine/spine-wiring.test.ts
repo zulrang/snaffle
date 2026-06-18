@@ -60,10 +60,12 @@ describe("Phase 6 spine wiring", () => {
       ...defaultOrchestratorConfig(),
       rollout: {
         enabled: true,
+        adapter: "injected" as const,
         flagName: "f",
         metricRef: "error_rate",
         threshold: 0.1,
         pollIntervalMs: 1000,
+        webhookBaseUrl: "",
       },
     };
     const lineageId = must(LineageId("L-rollout"));

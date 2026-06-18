@@ -35,19 +35,24 @@ export interface BudgetLimits {
   readonly sessionTokens: number;
   readonly perChangeTokens: number;
   readonly killSwitchTokens: number;
+  /** When true, counters persist to SQLite (W4/W11). */
+  readonly persist: boolean;
 }
-
 export interface HitlConfig {
   /** Fraction of two-way merges enqueued for human sampling (0..1, D11). */
   readonly twoWaySampleRate: number;
 }
 
+export type RolloutAdapter = "injected" | "live";
+
 export interface RolloutConfig {
   readonly enabled: boolean;
+  readonly adapter: RolloutAdapter;
   readonly flagName: string;
   readonly metricRef: string;
   readonly threshold: number;
   readonly pollIntervalMs: number;
+  readonly webhookBaseUrl: string;
 }
 
 export interface TierTable {
@@ -138,6 +143,7 @@ interface BudgetToml {
   readonly session_tokens?: unknown;
   readonly per_change_tokens?: unknown;
   readonly kill_switch_tokens?: unknown;
+  readonly persist?: unknown;
 }
 
 interface DoorTomlSection {
@@ -257,11 +263,14 @@ const parseBudget = (raw: unknown): Result<BudgetLimits, OrchestratorConfigError
   );
   if (!killSwitch.ok) return killSwitch;
 
+  const persist = table.persist === undefined ? defaults.persist : table.persist === true;
+
   return ok({
     rollingWindowTokens: rolling.value,
     sessionTokens: session.value,
     perChangeTokens: perChange.value,
     killSwitchTokens: killSwitch.value,
+    persist,
   });
 };
 
@@ -287,12 +296,31 @@ const parseRollout = (raw: unknown): Result<RolloutConfig, OrchestratorConfigErr
   }
   const table = raw as {
     enabled?: unknown;
+    adapter?: unknown;
     flag_name?: unknown;
     metric_ref?: unknown;
     threshold?: unknown;
     poll_interval_ms?: unknown;
+    webhook_base_url?: unknown;
   };
   const enabled = table.enabled === undefined ? defaults.enabled : table.enabled === true;
+  const adapterRaw = table.adapter;
+  let adapter: RolloutAdapter;
+  if (adapterRaw === "live") {
+    adapter = "live";
+  } else if (adapterRaw === undefined || adapterRaw === "injected") {
+    adapter = "injected";
+  } else {
+    return err({ kind: "invalid_gate_toml", detail: "[rollout].adapter must be injected or live" });
+  }
+  const webhookBaseUrl =
+    typeof table.webhook_base_url === "string" ? table.webhook_base_url : defaults.webhookBaseUrl;
+  if (adapter === "live" && webhookBaseUrl.length === 0) {
+    return err({
+      kind: "invalid_gate_toml",
+      detail: "[rollout].webhook_base_url required when adapter = live",
+    });
+  }
   const flagName =
     typeof table.flag_name === "string" && table.flag_name.length > 0
       ? table.flag_name
@@ -322,7 +350,7 @@ const parseRollout = (raw: unknown): Result<RolloutConfig, OrchestratorConfigErr
       detail: "[rollout].poll_interval_ms must be a positive number",
     });
   }
-  return ok({ enabled, flagName, metricRef, threshold, pollIntervalMs });
+  return ok({ enabled, adapter, flagName, metricRef, threshold, pollIntervalMs, webhookBaseUrl });
 };
 
 interface OrchestratorTomlSections {
@@ -346,14 +374,17 @@ export const defaultOrchestratorConfig = (): OrchestratorConfig => ({
     sessionTokens: 100_000,
     perChangeTokens: 50_000,
     killSwitchTokens: 500_000,
+    persist: false,
   },
   hitl: { twoWaySampleRate: 0 },
   rollout: {
     enabled: false,
+    adapter: "injected",
     flagName: "",
     metricRef: "",
     threshold: 0,
     pollIntervalMs: 60_000,
+    webhookBaseUrl: "",
   },
   governance: defaultGovernancePolicy(),
 });

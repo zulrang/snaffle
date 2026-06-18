@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { classifyTwoWay } from "../domain/door";
@@ -60,6 +60,15 @@ const idsFor = (suffix: string): SkeletonRunIds => ({
 });
 
 describe("W8 — end-to-end skeleton wiring", () => {
+  const clearFrozenPlan = () => {
+    const frozenPlanPath = join(repoRoot, FROZEN_PLAN_REL);
+    if (existsSync(frozenPlanPath)) rmSync(frozenPlanPath, { force: true });
+  };
+
+  beforeEach(() => {
+    clearFrozenPlan();
+  });
+
   afterEach(async () => {
     const orchestratorDir = join(repoRoot, OWNERSHIP_LOCK_DIR);
     const lockPath = join(orchestratorDir, OWNERSHIP_LOCK_FILE);
@@ -73,10 +82,7 @@ describe("W8 — end-to-end skeleton wiring", () => {
     if (existsSync(provenancePath)) {
       rmSync(provenancePath, { force: true });
     }
-    const frozenPlanPath = join(repoRoot, FROZEN_PLAN_REL);
-    if (existsSync(frozenPlanPath)) {
-      rmSync(frozenPlanPath, { force: true });
-    }
+    clearFrozenPlan();
   });
 
   test("drives a trivial change all the way to merge", async () => {

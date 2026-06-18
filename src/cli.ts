@@ -4,9 +4,15 @@ import {
   listPendingDecisions,
   recordDecisionForLineage,
 } from "./spine/decisions-cli.ts";
-import { type EscapesCommand, listEscapes, reportEscapeClusters } from "./spine/escapes-cli.ts";
+import {
+  type EscapesCommand,
+  listEscapes,
+  proposeEscapeRemediations,
+  reportEscapeClusters,
+} from "./spine/escapes-cli.ts";
 import { type Phase1RunError, readPhase1Status, runPhase1 } from "./spine/phase1-cli.ts";
 import { runRegimeLineage } from "./spine/regime-cli.ts";
+import { type RolloutCommand, readRolloutStatus, resumeRollout } from "./spine/rollout-cli.ts";
 import type { SkeletonVariant } from "./spine/skeleton-run.ts";
 
 const VARIANTS = ["merge_success", "scope_blocked", "post_gate_rejected"] as const;
@@ -17,7 +23,8 @@ const usage = (): void => {
   orchestrator status [--repo <path>] [--limit <n>]
   orchestrator decisions list [--repo <path>]
   orchestrator decisions approve|reject --lineage <id> [--repo <path>]
-  orchestrator escapes list|report [--repo <path>]`);
+  orchestrator escapes list|report|propose [--criterion <id>] [--repo <path>]
+  orchestrator rollout status|resume [--repo <path>]`);
 };
 
 const isEscapesCommand = (value: string): value is EscapesCommand =>
@@ -30,7 +37,7 @@ const isDecisionsCommand = (value: string): value is DecisionsCommand =>
   value === "list" || value === "approve" || value === "reject";
 
 export interface ParsedCli {
-  readonly command: "run" | "status" | "decisions" | "escapes";
+  readonly command: "run" | "status" | "decisions" | "escapes" | "rollout";
   readonly repoRoot: string;
   readonly variant: SkeletonVariant;
   readonly legacySkeleton: boolean;
@@ -38,8 +45,13 @@ export interface ParsedCli {
   readonly provenanceLimit: number;
   readonly decisionsCommand?: DecisionsCommand;
   readonly escapesCommand?: EscapesCommand;
+  readonly rolloutCommand?: RolloutCommand;
   readonly lineageId?: string;
+  readonly criterionId?: string;
 }
+
+const isRolloutCommand = (value: string): value is RolloutCommand =>
+  value === "status" || value === "resume";
 
 export const parseCliArgs = (argv: readonly string[]): ParsedCli | undefined => {
   const command = argv[0];
@@ -47,7 +59,8 @@ export const parseCliArgs = (argv: readonly string[]): ParsedCli | undefined => 
     command !== "run" &&
     command !== "status" &&
     command !== "decisions" &&
-    command !== "escapes"
+    command !== "escapes" &&
+    command !== "rollout"
   ) {
     return undefined;
   }
@@ -61,6 +74,8 @@ export const parseCliArgs = (argv: readonly string[]): ParsedCli | undefined => 
   let lineageId: string | undefined;
 
   let escapesCommand: EscapesCommand | undefined;
+  let rolloutCommand: RolloutCommand | undefined;
+  let criterionId: string | undefined;
 
   if (command === "decisions") {
     const sub = argv[1];
@@ -74,7 +89,13 @@ export const parseCliArgs = (argv: readonly string[]): ParsedCli | undefined => 
     escapesCommand = sub;
   }
 
-  const start = command === "decisions" || command === "escapes" ? 2 : 1;
+  if (command === "rollout") {
+    const sub = argv[1];
+    if (sub === undefined || !isRolloutCommand(sub)) return undefined;
+    rolloutCommand = sub;
+  }
+
+  const start = command === "decisions" || command === "escapes" || command === "rollout" ? 2 : 1;
   for (let i = start; i < argv.length; i += 1) {
     const flag = argv[i];
     const next = argv[i + 1];
@@ -96,6 +117,9 @@ export const parseCliArgs = (argv: readonly string[]): ParsedCli | undefined => 
       i += 1;
     } else if (flag === "--lineage" && next !== undefined) {
       lineageId = next;
+      i += 1;
+    } else if (flag === "--criterion" && next !== undefined) {
+      criterionId = next;
       i += 1;
     } else {
       return undefined;
@@ -121,7 +145,9 @@ export const parseCliArgs = (argv: readonly string[]): ParsedCli | undefined => 
     provenanceLimit,
     ...(decisionsCommand === undefined ? {} : { decisionsCommand }),
     ...(escapesCommand === undefined ? {} : { escapesCommand }),
+    ...(rolloutCommand === undefined ? {} : { rolloutCommand }),
     ...(lineageId === undefined ? {} : { lineageId }),
+    ...(criterionId === undefined ? {} : { criterionId }),
   };
 };
 
@@ -184,12 +210,42 @@ const main = async (): Promise<number> => {
       return 0;
     }
 
+    if (parsed.escapesCommand === "propose") {
+      const proposed = proposeEscapeRemediations(parsed.repoRoot, parsed.criterionId);
+      if (!proposed.ok) {
+        console.error(JSON.stringify({ ok: false, error: proposed.error }));
+        return 2;
+      }
+      console.log(JSON.stringify({ ok: true, ...proposed.value }, null, 2));
+      return 0;
+    }
+
     const report = reportEscapeClusters(parsed.repoRoot);
     if (!report.ok) {
       console.error(JSON.stringify({ ok: false, error: report.error }));
       return 2;
     }
     console.log(JSON.stringify({ ok: true, ...report.value }, null, 2));
+    return 0;
+  }
+
+  if (parsed.command === "rollout") {
+    if (parsed.rolloutCommand === "status") {
+      const status = readRolloutStatus(parsed.repoRoot);
+      if (!status.ok) {
+        console.error(JSON.stringify({ ok: false, error: status.error }));
+        return 2;
+      }
+      console.log(JSON.stringify({ ok: true, ...status.value }, null, 2));
+      return 0;
+    }
+
+    const resumed = resumeRollout(parsed.repoRoot);
+    if (!resumed.ok) {
+      console.error(JSON.stringify({ ok: false, error: resumed.error }));
+      return 2;
+    }
+    console.log(JSON.stringify({ ok: true, ...resumed.value }, null, 2));
     return 0;
   }
 

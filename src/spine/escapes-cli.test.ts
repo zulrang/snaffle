@@ -4,8 +4,13 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { LineageId } from "../domain/ids";
 import { parseTimestamp } from "../domain/shared";
+import {
+  ACCEPTANCE_SNAPSHOT_REL,
+  buildAcceptanceSnapshotRecord,
+  saveAcceptanceSnapshot,
+} from "../lib/acceptance-snapshot";
 import { ESCAPE_DB_DIR, ESCAPE_DB_FILE, openOracleEscapeStore } from "../lib/oracle-escape";
-import { listEscapes, reportEscapeClusters } from "./escapes-cli";
+import { listEscapes, proposeEscapeRemediations, reportEscapeClusters } from "./escapes-cli";
 
 const must = <T>(result: { ok: boolean; value?: T; error?: unknown }): T => {
   if (!result.ok) throw new Error(JSON.stringify(result.error));
@@ -63,5 +68,29 @@ describe("W7 — escapes CLI (D24)", () => {
 
     const listed = must(listEscapes(workspace));
     expect(listed.escapes.length).toBeGreaterThan(0);
+  });
+
+  test("propose emits remediation from snapshot + escape cluster", () => {
+    workspace = mkdtempSync(join(tmpdir(), "w7-escapes-propose-"));
+    const ts = must(parseTimestamp(1));
+    const snapshot = must(buildAcceptanceSnapshotRecord([{ id: "c1", statement: "original" }], ts));
+    must(saveAcceptanceSnapshot(workspace, ACCEPTANCE_SNAPSHOT_REL, snapshot));
+
+    const dbPath = escapeDbPath(workspace);
+    mkdirSync(dirname(dbPath), { recursive: true });
+    const store = openOracleEscapeStore(dbPath);
+    must(
+      store.recordEscape({
+        lineageId: must(LineageId("L-prop")),
+        missedCriterion: "c1",
+        source: "sample",
+        recordedAt: ts,
+      }),
+    );
+    store.close();
+
+    const proposed = must(proposeEscapeRemediations(workspace));
+    expect(proposed.proposals).toHaveLength(1);
+    expect(proposed.proposals[0]?.missedCriterion).toBe("c1");
   });
 });

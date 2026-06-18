@@ -125,10 +125,12 @@ poll_interval_ms = 30000
     );
     expect(config.rollout).toEqual({
       enabled: true,
+      adapter: "injected",
       flagName: "feature-x",
       metricRef: "error_rate",
       threshold: 0.05,
       pollIntervalMs: 30_000,
+      webhookBaseUrl: "",
     });
   });
 
@@ -136,6 +138,34 @@ poll_interval_ms = 30000
     const result = parseOrchestratorToml(`
 [rollout]
 threshold = -1
+`);
+    expect(result.ok).toBe(false);
+  });
+
+  test("parses budget persist and live rollout adapter", () => {
+    const config = must(
+      parseOrchestratorToml(`
+[budget]
+persist = true
+
+[rollout]
+enabled = true
+adapter = "live"
+webhook_base_url = "http://rollout.local"
+flag_name = "feat-x"
+metric_ref = "errors"
+threshold = 0.2
+`),
+    );
+    expect(config.budget.persist).toBe(true);
+    expect(config.rollout.adapter).toBe("live");
+    expect(config.rollout.webhookBaseUrl).toBe("http://rollout.local");
+  });
+
+  test("live rollout adapter requires webhook_base_url", () => {
+    const result = parseOrchestratorToml(`
+[rollout]
+adapter = "live"
 `);
     expect(result.ok).toBe(false);
   });

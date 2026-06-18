@@ -40,8 +40,8 @@ import { runOracleAuthoringPhase } from "./oracle-authoring";
 import type { ScopedWriteAttempt, ScopeEvent } from "./scoped-invocation";
 import { stepBudget } from "./skeleton-run";
 import {
-  dryRunRolloutClient,
   recordGateReportSpans,
+  resolveRolloutClient,
   runPostMergeRolloutIfEnabled,
 } from "./spine-wiring";
 
@@ -214,7 +214,7 @@ const finalizeMergedTerminal = async (
     input.repoRoot,
     input.config,
     input.lineage.lineageId,
-    input.rolloutClient ?? dryRunRolloutClient(),
+    input.rolloutClient ?? resolveRolloutClient(input.config),
   );
 
   return ok({
