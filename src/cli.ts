@@ -5,6 +5,7 @@ import {
   recordDecisionForLineage,
 } from "./spine/decisions-cli.ts";
 import {
+  applyEscapeCriteriaAtRepo,
   type EscapesCommand,
   listEscapes,
   proposeEscapeRemediations,
@@ -23,12 +24,12 @@ const usage = (): void => {
   orchestrator status [--repo <path>] [--limit <n>]
   orchestrator decisions list [--repo <path>]
   orchestrator decisions approve|reject --lineage <id> [--repo <path>]
-  orchestrator escapes list|report|propose [--criterion <id>] [--repo <path>]
+  orchestrator escapes list|report|propose|apply-criteria [--criterion <id>] [--repo <path>]
   orchestrator rollout status|resume [--repo <path>]`);
 };
 
 const isEscapesCommand = (value: string): value is EscapesCommand =>
-  value === "list" || value === "report";
+  value === "list" || value === "report" || value === "propose" || value === "apply-criteria";
 
 const isVariant = (value: string): value is SkeletonVariant =>
   (VARIANTS as readonly string[]).includes(value);
@@ -136,6 +137,10 @@ export const parseCliArgs = (argv: readonly string[]): ParsedCli | undefined => 
     }
   }
 
+  if (command === "escapes" && escapesCommand === "apply-criteria") {
+    if (criterionId === undefined || criterionId.length === 0) return undefined;
+  }
+
   return {
     command,
     repoRoot,
@@ -217,6 +222,16 @@ const main = async (): Promise<number> => {
         return 2;
       }
       console.log(JSON.stringify({ ok: true, ...proposed.value }, null, 2));
+      return 0;
+    }
+
+    if (parsed.escapesCommand === "apply-criteria") {
+      const applied = applyEscapeCriteriaAtRepo(parsed.repoRoot, parsed.criterionId as string);
+      if (!applied.ok) {
+        console.error(JSON.stringify({ ok: false, error: applied.error }));
+        return 2;
+      }
+      console.log(JSON.stringify({ ok: true, ...applied.value }, null, 2));
       return 0;
     }
 

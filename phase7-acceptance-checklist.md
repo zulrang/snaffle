@@ -2,7 +2,7 @@
 
 Adversarial AC mirroring Phases 2–6. Gate: `bun run check` and `npm run check:node`.
 
-Each box names the test that proves it. `bun run check` is green (337 tests, 1 env-gated skip).
+Each box names the test that proves it. `bun run check` is green (342 tests, 1 env-gated skip).
 
 ## Spikes (S1–S4)
 
@@ -18,8 +18,8 @@ Each box names the test that proves it. `bun run check` is green (337 tests, 1 e
 - [x] **W3** Operator ramp CLI — `orchestrator rollout status|resume` — `src/spine/rollout-cli.test.ts`
 - [x] **W4** Durable budget ledger — optional `[budget].persist` — `src/lib/budget-ledger.test.ts`
 - [x] **W5** Escape remediation emitter — template proposals — `src/lib/escape-remediation.test.ts`
-- [x] **W6** Remediation CLI — `escapes propose` (apply-criteria deferred) — `src/spine/escapes-cli.test.ts`
-- [ ] **W7** Optional gate stages `spec_traceability` / `smoke_budget` — deferred (command stages work when configured; no dedicated fixtures yet)
+- [x] **W6** Remediation CLI — `escapes propose|apply-criteria` — `src/spine/escapes-cli.test.ts`
+- [x] **W7** Optional gate stages — `spec_traceability` + `smoke_budget` fixtures — `src/lib/optional-gate-stages.test.ts`
 - [x] **W8** Env-gated real-model smoke — skipped unless `SNAFFLE_LIVE_MODEL=1` — `src/spine/live-model-smoke.test.ts`
 - [x] **W9** Spine production loop — offline mirror — `src/spine/phase7-integration.test.ts`
 - [x] **W10** Phase 7 acceptance checklist — `phase7-acceptance-checklist.md`
@@ -29,10 +29,10 @@ Each box names the test that proves it. `bun run check` is green (337 tests, 1 e
 - [x] Live adapter failure degrades like dry-run — `src/lib/gh-pr-adapter.test.ts`, `src/lib/live-rollout-client.test.ts`
 - [x] Pre-merge gate sole merge blocker unchanged — existing Phase 6 floor green
 - [x] Escape proposals require frozen snapshot integrity — `src/spine/escapes-cli.test.ts`
+- [x] Apply-criteria re-freezes snapshot only; refuses drift/stale — `src/lib/escape-remediation.test.ts`
 - [x] No stochastic grader in merge path — D24 deferred by design
 
 ## Deferred (per plan §8 cut lines)
 
-- **W7 gate stage fixtures** — stages run via gate.toml commands when enabled; dedicated red/green fixtures not added.
-- **W6 `apply-criteria`** — propose-only for v1; re-freeze path not wired.
 - **Multi-vendor rollout matrix** — webhook shim only.
+- **Live `gh` env-gated integration** — mock exec in CI; live path uses `defaultGhExec`.

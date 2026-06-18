@@ -1,8 +1,18 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { LineageId } from "../domain/ids";
 import { parseTimestamp } from "../domain/shared";
-import { buildAcceptanceSnapshotRecord } from "./acceptance-snapshot";
 import {
+  ACCEPTANCE_SNAPSHOT_REL,
+  buildAcceptanceSnapshotRecord,
+  loadAcceptanceSnapshot,
+  saveAcceptanceSnapshot,
+  verifyAcceptanceSnapshotIntegrity,
+} from "./acceptance-snapshot";
+import {
+  applyRemediationProposal,
   proposalChangesSnapshot,
   proposeEscapeRemediation,
   remediationProposalHash,
@@ -67,5 +77,33 @@ describe("W5 — escape remediation emitter (D24)", () => {
       snapshot,
     );
     expect(result.ok).toBe(false);
+  });
+
+  test("apply re-freezes snapshot and refuses drift", () => {
+    const workspace = mkdtempSync(join(tmpdir(), "w5-apply-"));
+    try {
+      const ts2 = must(parseTimestamp(2));
+      must(saveAcceptanceSnapshot(workspace, ACCEPTANCE_SNAPSHOT_REL, snapshot));
+      const cluster = {
+        missedCriterion: "c1",
+        count: 1,
+        lineageIds: [must(LineageId("L-apply"))],
+      };
+      const proposal = must(proposeEscapeRemediation(cluster, snapshot));
+      const applied = must(applyRemediationProposal(workspace, proposal, ts2));
+      expect(proposalChangesSnapshot(proposal, snapshot)).toBe(true);
+      expect(applied.criteria.find((c) => c.id === "c1")?.statement).toContain("escape cluster");
+
+      const reloaded = must(loadAcceptanceSnapshot(workspace, ACCEPTANCE_SNAPSHOT_REL));
+      if (reloaded === undefined) throw new Error("missing snapshot");
+      expect(verifyAcceptanceSnapshotIntegrity(reloaded).ok).toBe(true);
+
+      const again = applyRemediationProposal(workspace, proposal, ts2);
+      expect(again.ok).toBe(false);
+      if (again.ok) return;
+      expect(again.error.kind).toBe("no_op");
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
   });
 });

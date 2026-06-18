@@ -7,10 +7,17 @@ import { parseTimestamp } from "../domain/shared";
 import {
   ACCEPTANCE_SNAPSHOT_REL,
   buildAcceptanceSnapshotRecord,
+  loadAcceptanceSnapshot,
   saveAcceptanceSnapshot,
+  verifyAcceptanceSnapshotIntegrity,
 } from "../lib/acceptance-snapshot";
 import { ESCAPE_DB_DIR, ESCAPE_DB_FILE, openOracleEscapeStore } from "../lib/oracle-escape";
-import { listEscapes, proposeEscapeRemediations, reportEscapeClusters } from "./escapes-cli";
+import {
+  applyEscapeCriteriaAtRepo,
+  listEscapes,
+  proposeEscapeRemediations,
+  reportEscapeClusters,
+} from "./escapes-cli";
 
 const must = <T>(result: { ok: boolean; value?: T; error?: unknown }): T => {
   if (!result.ok) throw new Error(JSON.stringify(result.error));
@@ -92,5 +99,32 @@ describe("W7 — escapes CLI (D24)", () => {
     const proposed = must(proposeEscapeRemediations(workspace));
     expect(proposed.proposals).toHaveLength(1);
     expect(proposed.proposals[0]?.missedCriterion).toBe("c1");
+  });
+
+  test("apply-criteria re-freezes snapshot for a criterion cluster", () => {
+    workspace = mkdtempSync(join(tmpdir(), "w7-escapes-apply-"));
+    const ts = must(parseTimestamp(1));
+    const snapshot = must(buildAcceptanceSnapshotRecord([{ id: "c1", statement: "original" }], ts));
+    must(saveAcceptanceSnapshot(workspace, ACCEPTANCE_SNAPSHOT_REL, snapshot));
+
+    const dbPath = escapeDbPath(workspace);
+    mkdirSync(dirname(dbPath), { recursive: true });
+    const store = openOracleEscapeStore(dbPath);
+    must(
+      store.recordEscape({
+        lineageId: must(LineageId("L-apply")),
+        missedCriterion: "c1",
+        source: "hitl",
+        recordedAt: ts,
+      }),
+    );
+    store.close();
+
+    const applied = must(applyEscapeCriteriaAtRepo(workspace, "c1"));
+    expect(applied.proposal.missedCriterion).toBe("c1");
+    const reloaded = must(loadAcceptanceSnapshot(workspace, ACCEPTANCE_SNAPSHOT_REL));
+    if (reloaded === undefined) throw new Error("missing snapshot");
+    expect(verifyAcceptanceSnapshotIntegrity(reloaded).ok).toBe(true);
+    expect(reloaded.criteria.find((c) => c.id === "c1")?.statement).toContain("escape cluster");
   });
 });

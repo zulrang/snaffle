@@ -39,7 +39,7 @@ export interface ProjectGateConfig {
 
 export const PHASE1_GATE_CHECK_KIND = "full_tests" as const satisfies GateCheckKind;
 
-/** Phase 2 tiers — spec_traceability and smoke_budget deferred per cut lines. */
+/** Phase 2 tiers — spec_traceability and smoke_budget optional via gate.toml stages (W7). */
 export const TIER_AFFECTED_KINDS: readonly GateCheckKind[] = [
   "format",
   "lint",
@@ -53,6 +53,8 @@ export const TIER_FULL_KINDS: readonly GateCheckKind[] = [
   ...TIER_AFFECTED_KINDS,
   "full_tests",
   "contract_diff",
+  "spec_traceability",
+  "smoke_budget",
 ];
 
 export type GateConfigError =
