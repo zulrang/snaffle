@@ -13,6 +13,7 @@ import {
 } from "./spine/escapes-cli.ts";
 import { type Phase1RunError, readPhase1Status, runPhase1 } from "./spine/phase1-cli.ts";
 import { runRegimeLineage } from "./spine/regime-cli.ts";
+import { resumeApprovedLineage } from "./spine/resume-cli.ts";
 import { type RolloutCommand, readRolloutStatus, resumeRollout } from "./spine/rollout-cli.ts";
 import type { SkeletonVariant } from "./spine/skeleton-run.ts";
 
@@ -20,10 +21,11 @@ const VARIANTS = ["merge_success", "scope_blocked", "post_gate_rejected"] as con
 
 const usage = (): void => {
   console.error(`usage:
-  orchestrator run [--repo <path>] [--legacy-skeleton] [--variant ${VARIANTS.join("|")}] [--owner <id>]
+  orchestrator run [--repo <path>] [--config-file <path>] [--task-file <path>] [--legacy-skeleton] [--variant ${VARIANTS.join("|")}] [--owner <id>]
   orchestrator status [--repo <path>] [--limit <n>]
   orchestrator decisions list [--repo <path>]
   orchestrator decisions approve|reject --lineage <id> [--repo <path>]
+  orchestrator resume --lineage <id> [--repo <path>]
   orchestrator escapes list|report|propose|apply-criteria [--criterion <id>] [--repo <path>]
   orchestrator rollout status|resume [--repo <path>]`);
 };
@@ -38,12 +40,14 @@ const isDecisionsCommand = (value: string): value is DecisionsCommand =>
   value === "list" || value === "approve" || value === "reject";
 
 export interface ParsedCli {
-  readonly command: "run" | "status" | "decisions" | "escapes" | "rollout";
+  readonly command: "run" | "status" | "decisions" | "resume" | "escapes" | "rollout";
   readonly repoRoot: string;
   readonly variant: SkeletonVariant;
   readonly legacySkeleton: boolean;
   readonly ownerId?: string;
   readonly provenanceLimit: number;
+  readonly taskFile?: string;
+  readonly configFile?: string;
   readonly decisionsCommand?: DecisionsCommand;
   readonly escapesCommand?: EscapesCommand;
   readonly rolloutCommand?: RolloutCommand;
@@ -60,6 +64,7 @@ export const parseCliArgs = (argv: readonly string[]): ParsedCli | undefined => 
     command !== "run" &&
     command !== "status" &&
     command !== "decisions" &&
+    command !== "resume" &&
     command !== "escapes" &&
     command !== "rollout"
   ) {
@@ -71,6 +76,8 @@ export const parseCliArgs = (argv: readonly string[]): ParsedCli | undefined => 
   let legacySkeleton = false;
   let ownerId: string | undefined;
   let provenanceLimit = 10;
+  let taskFile: string | undefined;
+  let configFile: string | undefined;
   let decisionsCommand: DecisionsCommand | undefined;
   let lineageId: string | undefined;
 
@@ -112,6 +119,12 @@ export const parseCliArgs = (argv: readonly string[]): ParsedCli | undefined => 
     } else if (flag === "--owner" && next !== undefined) {
       ownerId = next;
       i += 1;
+    } else if (flag === "--task-file" && next !== undefined && command === "run") {
+      taskFile = next;
+      i += 1;
+    } else if (flag === "--config-file" && next !== undefined && command === "run") {
+      configFile = next;
+      i += 1;
     } else if (flag === "--limit" && next !== undefined) {
       provenanceLimit = Number(next);
       if (!Number.isInteger(provenanceLimit) || provenanceLimit <= 0) return undefined;
@@ -137,6 +150,10 @@ export const parseCliArgs = (argv: readonly string[]): ParsedCli | undefined => 
     }
   }
 
+  if (command === "resume" && (lineageId === undefined || lineageId.length === 0)) {
+    return undefined;
+  }
+
   if (command === "escapes" && escapesCommand === "apply-criteria") {
     if (criterionId === undefined || criterionId.length === 0) return undefined;
   }
@@ -148,6 +165,8 @@ export const parseCliArgs = (argv: readonly string[]): ParsedCli | undefined => 
     legacySkeleton,
     ...(ownerId === undefined ? {} : { ownerId }),
     provenanceLimit,
+    ...(taskFile === undefined ? {} : { taskFile }),
+    ...(configFile === undefined ? {} : { configFile }),
     ...(decisionsCommand === undefined ? {} : { decisionsCommand }),
     ...(escapesCommand === undefined ? {} : { escapesCommand }),
     ...(rolloutCommand === undefined ? {} : { rolloutCommand }),
@@ -202,6 +221,16 @@ const main = async (): Promise<number> => {
     }
     console.log(JSON.stringify({ ok: true, ...recorded.value }, null, 2));
     return 0;
+  }
+
+  if (parsed.command === "resume") {
+    const resumed = await resumeApprovedLineage(parsed.repoRoot, parsed.lineageId as string);
+    if (!resumed.ok) {
+      console.error(JSON.stringify({ ok: false, error: resumed.error }));
+      return 2;
+    }
+    console.log(JSON.stringify({ ok: true, outcome: resumed.value }, null, 2));
+    return resumed.value.kind === "merged" ? 0 : 1;
   }
 
   if (parsed.command === "escapes") {
@@ -281,7 +310,11 @@ const main = async (): Promise<number> => {
     return 1;
   }
 
-  const regime = await runRegimeLineage({ repoRoot: parsed.repoRoot });
+  const regime = await runRegimeLineage({
+    repoRoot: parsed.repoRoot,
+    ...(parsed.taskFile === undefined ? {} : { taskFile: parsed.taskFile }),
+    ...(parsed.configFile === undefined ? {} : { configFile: parsed.configFile }),
+  });
   if (!regime.ok) {
     console.error(JSON.stringify({ ok: false, error: regime.error }));
     return 2;

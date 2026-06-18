@@ -11,8 +11,8 @@ import type { OracleCoverageDecision } from "./oracle-coverage";
  * scope / provenance floor. The full regime adds spec + planner + dedicated
  * oracle authoring and holds for a human before merge; the minimal regime enters
  * with an inline target, reuses the frozen oracle when it covers the criteria,
- * and auto-merges on green. The spike is orthogonal — it runs in either regime
- * only when an open question must be retired.
+ * and can continue on green unless D11 samples it for HITL. The spike is
+ * orthogonal — it runs in either regime only when an open question must be retired.
  */
 
 export type PipelinePhase =

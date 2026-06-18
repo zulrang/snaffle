@@ -1,14 +1,19 @@
 import { Agent, type AgentEvent, type AgentTool } from "@earendil-works/pi-agent-core";
 import {
+  type Api,
   type FauxProviderRegistration,
   fauxAssistantMessage,
   fauxToolCall,
+  getModels,
+  getProviders,
+  type KnownProvider,
   type Model,
   registerFauxProvider,
   streamSimple,
   Type,
   type Usage,
 } from "@earendil-works/pi-ai";
+import { AuthStorage } from "@earendil-works/pi-coding-agent";
 import type { Static } from "typebox";
 import type { AgentOutcome, AgentResult, FileEdit } from "../domain/agent";
 import type { InvocationId } from "../domain/ids";
@@ -42,10 +47,16 @@ export interface StubInvocationMetadata {
   readonly promptCache?: PromptCacheHint;
 }
 
+export interface CapturedWrite {
+  readonly path: RepoPath;
+  readonly content: string;
+}
+
 /** Structured result from a headless stub invocation (S1). Maps to domain `AgentResult`. */
 export interface StubInvocationResult {
   readonly status: AgentOutcome;
   readonly edits: readonly FileEdit[];
+  readonly writes: readonly CapturedWrite[];
   readonly metadata: StubInvocationMetadata;
   readonly invocationId: InvocationId;
   readonly summary: string;
@@ -106,6 +117,8 @@ export interface StubInvocationOptions {
    * created for this call and unregistered in `finally`.
    */
   readonly fauxRegistration?: FauxProviderRegistration;
+  /** Execute against the configured live provider instead of the deterministic faux queue. */
+  readonly invocationMode?: "faux" | "live";
 }
 
 export interface StubInvocationError {
@@ -140,8 +153,38 @@ export const createStubFauxEnvironment = (): {
   };
 };
 
+const isKnownProvider = (provider: string): provider is KnownProvider =>
+  (getProviders() as readonly string[]).includes(provider);
+
+const resolveLiveModel = (
+  modelRef: ModelRef | undefined,
+): Result<Model<Api>, StubInvocationError> => {
+  if (modelRef === undefined) {
+    return err({ kind: "agent_error", detail: "live invocation requires a modelRef" });
+  }
+  if (!isKnownProvider(modelRef.provider)) {
+    return err({ kind: "agent_error", detail: `unknown live provider: ${modelRef.provider}` });
+  }
+  const model = (getModels(modelRef.provider) as readonly Model<Api>[]).find(
+    (candidate) => candidate.id === modelRef.model,
+  );
+  if (model === undefined) {
+    return err({
+      kind: "agent_error",
+      detail: `unknown model for provider ${modelRef.provider}: ${modelRef.model}`,
+    });
+  }
+  return ok(model);
+};
+
+const createLiveAuthStorage = (): AuthStorage => {
+  const { SNAFFLE_PI_AUTH_JSON } = process.env;
+  return AuthStorage.create(SNAFFLE_PI_AUTH_JSON);
+};
+
 const createScopedWriteTool = (
   edits: FileEdit[],
+  capturedWrites: CapturedWrite[],
   totalWrites: number,
   scope: WriteScope | undefined,
   workspaceRoot: string | undefined,
@@ -162,6 +205,7 @@ const createScopedWriteTool = (
     }
 
     edits.push({ path: parsed.value, operation: "modify" });
+    capturedWrites.push({ path: parsed.value, content: params.content });
     onWriteAllowed?.(parsed.value, "scoped_write");
     return {
       content: [{ type: "text", text: `Wrote ${params.path}` }],
@@ -184,25 +228,39 @@ const runStubAgent = async (
   writes: readonly StubSequenceWrite[],
   options: StubInvocationOptions = {},
 ): Promise<Result<StubInvocationResult, StubInvocationError>> => {
-  if (writes.length === 0) {
+  const invocationMode = options.invocationMode ?? "faux";
+  if (invocationMode === "faux" && writes.length === 0) {
     return err({ kind: "invalid_target_path", detail: "no writes requested" });
   }
 
-  const faux = options.fauxRegistration ?? createDefaultFauxRegistration();
-  const ownsFaux = options.fauxRegistration === undefined;
+  const faux =
+    invocationMode === "faux"
+      ? (options.fauxRegistration ?? createDefaultFauxRegistration())
+      : undefined;
+  const ownsFaux = invocationMode === "faux" && options.fauxRegistration === undefined;
 
   try {
-    const model = faux.getModel(STUB_MODEL_ID) as Model<string>;
-    faux.setResponses(
-      writes.map((write) =>
-        fauxAssistantMessage([
-          fauxToolCall("scoped_write", { path: write.path, content: write.content }),
-        ]),
-      ),
-    );
+    let model: Model<Api>;
+    if (invocationMode === "live") {
+      const resolved = resolveLiveModel(options.modelRef);
+      if (!resolved.ok) return resolved;
+      model = resolved.value;
+    } else {
+      const registration = faux as FauxProviderRegistration;
+      model = registration.getModel(STUB_MODEL_ID) as Model<Api>;
+      registration.setResponses(
+        writes.map((write) =>
+          fauxAssistantMessage([
+            fauxToolCall("scoped_write", { path: write.path, content: write.content }),
+          ]),
+        ),
+      );
+    }
 
     const edits: FileEdit[] = [];
+    const capturedWrites: CapturedWrite[] = [];
     const scopeDenials: ScopeDenialEvent[] = [];
+    const authStorage = invocationMode === "live" ? createLiveAuthStorage() : undefined;
     const scopeGuard = options.scope
       ? createBeforeToolCallGuard(options.scope, options.workspaceRoot, options.oracleFreeze)
       : undefined;
@@ -217,6 +275,7 @@ const runStubAgent = async (
         tools: [
           createScopedWriteTool(
             edits,
+            capturedWrites,
             writes.length,
             options.scope,
             options.workspaceRoot,
@@ -226,6 +285,9 @@ const runStubAgent = async (
       },
       streamFn,
       toolExecution: "sequential",
+      ...(authStorage === undefined
+        ? {}
+        : { getApiKey: (provider: string) => authStorage.getApiKey(provider) }),
       ...(options.promptCache ? { sessionId: options.promptCache.sessionId } : {}),
       ...(scopeGuard
         ? {
@@ -267,22 +329,28 @@ const runStubAgent = async (
     await agent.waitForIdle();
 
     const status: AgentOutcome =
-      scopeDenials.length > 0 ? "refused" : agentError ? "failed" : "succeeded";
+      scopeDenials.length > 0
+        ? "refused"
+        : agentError || edits.length === 0
+          ? "failed"
+          : "succeeded";
 
     const summary =
       status === "refused"
         ? (scopeDenials[0]?.reason ?? "Write refused by scope guard")
         : status === "failed"
-          ? (agentError ?? "Agent run failed")
+          ? (agentError ?? "Agent produced no edits")
           : writes.length === 1
             ? `Stub edit applied to ${writes[0]?.path ?? "unknown"}`
             : `Stub edits applied (${edits.length}/${writes.length} writes)`;
 
     const evidenceEdits = status === "succeeded" ? edits : [];
+    const evidenceWrites = status === "succeeded" ? capturedWrites : [];
 
     return ok({
       status,
       edits: evidenceEdits,
+      writes: evidenceWrites,
       metadata: {
         provider: options.modelRef?.provider ?? model.provider,
         modelId: options.modelRef?.model ?? model.id,
@@ -299,7 +367,7 @@ const runStubAgent = async (
     });
   } finally {
     if (ownsFaux) {
-      faux.unregister();
+      faux?.unregister();
     }
   }
 };

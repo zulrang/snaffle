@@ -205,7 +205,7 @@ describe("W9 — spine concurrency integration (Phase 5)", () => {
     must(verifyAcceptanceSnapshotIntegrity(snapshot));
   });
 
-  test("one-way parks, enqueues, and merges only after queued approval", async () => {
+  test("one-way parks, enqueues, and approval only authorizes continuation", async () => {
     const store = openDecisionStore();
     const gate = await prepare();
     const lineage = snapshotLineage(
@@ -239,8 +239,9 @@ describe("W9 — spine concurrency integration (Phase 5)", () => {
     expect(must(store.pendingCount())).toBe(1);
     const item = must(store.getByLineageId(lineage.lineageId));
     expect(item?.kind).toBe("merge_hold");
+    expect(item?.parkedChangeHash).toMatch(/^[0-9a-f]{64}$/);
 
-    const resumed = must(
+    const approved = must(
       store.recordDecision({
         decisionId,
         decision: "approve",
@@ -248,7 +249,8 @@ describe("W9 — spine concurrency integration (Phase 5)", () => {
         decidedAt: ts,
       }),
     );
-    expect(resumed.nextState).toEqual({ status: "merged" });
+    expect(approved.nextState).toEqual({ status: "approved_for_merge" });
+    expect(approved.item.approvedChangeHash).toBe(item?.parkedChangeHash);
     expect(must(store.pendingCount())).toBe(0);
   });
 
@@ -289,11 +291,29 @@ describe("W9 — spine concurrency integration (Phase 5)", () => {
         at: ts,
         decisionQueue: store,
         decisionId: must(DecisionId("dec-w9-sampled")),
+        decisionReview: {
+          summary: "Sampled docs review context",
+          scope: ["src/domain"],
+          acceptanceCriteria: ["phase 5 integration acceptance"],
+        },
       }),
     );
     expect(sampledOutcome.terminal.kind).toBe("awaiting_human");
     const sampledItem = must(store.getByLineageId(sampled));
     expect(sampledItem?.kind).toBe("two_way_sample");
+    expect(sampledItem?.parkedChangeHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(sampledItem?.review).toEqual({
+      summary: "Sampled docs review context",
+      scope: ["src/domain"],
+      acceptanceCriteria: ["phase 5 integration acceptance"],
+      changedPaths: ["src/domain/w9-sampled.ts"],
+      writePreviews: [
+        {
+          path: "src/domain/w9-sampled.ts",
+          content: "// src/domain/w9-sampled.ts\n",
+        },
+      ],
+    });
     expect(must(store.pendingCount())).toBe(1);
   });
 });

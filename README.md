@@ -32,8 +32,9 @@ All commands accept `--repo <path>` (defaults to the current directory). Output 
 | `orchestrator run` | Run a lineage through the regime pipeline (spec → plan → oracle → implement → validate, or the minimal two-way path) |
 | `orchestrator status` | Lock state, frozen plan, and recent provenance |
 | `orchestrator decisions list` | Pending human decisions (one-way doors, sampled two-way merges) |
-| `orchestrator decisions approve --lineage <id>` | Approve and merge a parked lineage |
+| `orchestrator decisions approve --lineage <id>` | Authorize continuation for a parked lineage |
 | `orchestrator decisions reject --lineage <id>` | Reject and close a parked lineage |
+| `orchestrator resume --lineage <id>` | Resume an approved lineage: reapply, rerun POST gate, then merge |
 | `orchestrator escapes list \| report \| propose` | Oracle escapes (gate greens that failed downstream) |
 | `orchestrator escapes apply-criteria --criterion <id>` | Apply a remediation proposal via control-plane re-freeze |
 | `orchestrator rollout status \| resume` | Post-merge flag guardrail state after merge |
@@ -43,13 +44,17 @@ All commands accept `--repo <path>` (defaults to the current directory). Output 
 - `--legacy-skeleton` — Phase-1 single-shot stub path (for regression only)
 - `--variant merge_success\|scope_blocked\|post_gate_rejected` — skeleton variants (legacy mode only)
 - `--owner <id>` — writer lock owner id
+- `--task-file <path>` — dogfood task JSON for the default regime path
+- `--config-file <path>` — dogfood TOML config override for the default regime path
 
 **Example:**
 
 ```bash
 bun run orchestrator -- run --repo .
+bun run orchestrator -- run --config-file docs/dogfood-gate.example.toml --task-file docs/dogfood-task.example.json
 bun run orchestrator -- decisions list
 bun run orchestrator -- decisions approve --lineage lineage-abc
+bun run orchestrator -- resume --lineage lineage-abc
 ```
 
 ## Configuration

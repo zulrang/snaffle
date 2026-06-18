@@ -58,11 +58,53 @@ describe("W5 — batched HITL decision queue (D11)", () => {
     expect(must(store.listPending())).toHaveLength(1);
   });
 
-  test("a recorded approval resumes to a control-plane merge (not via the queue mutating state)", () => {
+  test("pending decisions include durable review context", () => {
+    openStore();
+    const review = {
+      summary: "Review a sampled dogfood docs write.",
+      scope: ["docs"],
+      acceptanceCriteria: ["bun run check remains green"],
+      changedPaths: ["docs/dogfood-warmup.md"],
+      writePreviews: [
+        {
+          path: "docs/dogfood-warmup.md",
+          content: "# Dogfood Warmup\n",
+        },
+      ],
+    };
+
+    must(
+      store.enqueue({
+        decisionId: must(DecisionId("dec-review")),
+        lineageId: must(LineageId("L-review")),
+        kind: "two_way_sample",
+        door: { direction: "two_way" },
+        enqueuedAt: ts,
+        review,
+      }),
+    );
+
+    const pending = must(store.listPending());
+    expect(pending[0]?.review).toEqual(review);
+    store.close();
+
+    store = openDecisionQueueStore(join(workspace, DECISION_DB_FILE));
+    expect(must(store.listPending())[0]?.review).toEqual(review);
+  });
+
+  test("a recorded approval authorizes continuation without computing merged", () => {
     openStore();
     const lineageId = must(LineageId("L-approve"));
     const decisionId = must(DecisionId("dec-approve"));
-    must(enqueueAwaitingHuman(store, { decisionId, lineageId, door: oneWay, enqueuedAt: ts }));
+    must(
+      enqueueAwaitingHuman(store, {
+        decisionId,
+        lineageId,
+        door: oneWay,
+        enqueuedAt: ts,
+        parkedChangeHash: "a".repeat(64),
+      }),
+    );
 
     const outcome = must(
       store.recordDecision({
@@ -73,8 +115,9 @@ describe("W5 — batched HITL decision queue (D11)", () => {
       }),
     );
 
-    expect(outcome.nextState).toEqual({ status: "merged" });
+    expect(outcome.nextState).toEqual({ status: "approved_for_merge" });
     expect(outcome.item.decision).toBe("approve");
+    expect(outcome.item.approvedChangeHash).toBe("a".repeat(64));
     expect(must(store.pendingCount())).toBe(0);
   });
 

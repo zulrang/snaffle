@@ -1,12 +1,23 @@
+import { readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { classifyTwoWay } from "../domain/door";
-import { GateRunId, LineageId, RequirementId, TransitionId } from "../domain/ids";
+import { DecisionId, GateRunId, LineageId, RequirementId, TransitionId } from "../domain/ids";
 import { makeLineage } from "../domain/lineage";
-import { makeWriteScope, parseRepoPath } from "../domain/scope";
-import { err, ok, parseTimestamp, type Result } from "../domain/shared";
+import { makeWriteScope, parseRepoPath, type RepoPath } from "../domain/scope";
+import { err, ok, parseTimestamp, type Result, type Timestamp } from "../domain/shared";
 import { snapshotAcceptanceTarget } from "../lib/acceptance-snapshot";
-import { defaultOrchestratorConfig, loadOrchestratorConfig } from "../lib/orchestrator-config";
+import type { DecisionReviewContext } from "../lib/decision-queue";
+import { DECISION_DB_DIR, DECISION_DB_FILE, openDecisionQueueStore } from "../lib/decision-queue";
+import { type DogfoodTask, dogfoodTaskPrompt, parseDogfoodTask } from "../lib/dogfood-task";
+import type { OrchestratorConfig } from "../lib/orchestrator-config";
+import {
+  defaultOrchestratorConfig,
+  loadOrchestratorConfig,
+  parseOrchestratorToml,
+} from "../lib/orchestrator-config";
 import { skeletonGateConfig, writePassingGateFixture } from "../lib/skeleton-gate-fixture";
 import { prepareWorktreeGate } from "./gate-invocation";
+import type { PhaseTask } from "./phase-pipeline";
 import { type LineagePipelineOutcome, runLineageForRegime } from "./phase-pipeline";
 
 /**
@@ -15,19 +26,33 @@ import { type LineagePipelineOutcome, runLineageForRegime } from "./phase-pipeli
 
 export type RegimeRunError =
   | { readonly kind: "invalid_default" }
+  | { readonly kind: "task_read"; readonly detail: string }
+  | { readonly kind: "task_invalid"; readonly detail: string }
+  | { readonly kind: "config_read"; readonly detail: string }
+  | { readonly kind: "config_invalid"; readonly detail: string }
   | { readonly kind: "worktree_prepare"; readonly detail: string }
   | { readonly kind: "pipeline"; readonly detail: string };
 
 export interface RegimeRunInput {
   readonly repoRoot: string;
+  readonly taskFile?: string;
+  readonly configFile?: string;
 }
 
-export const runRegimeLineage = async (
-  input: RegimeRunInput,
-): Promise<Result<LineagePipelineOutcome, RegimeRunError>> => {
-  const ts = parseTimestamp(Date.now());
-  if (!ts.ok) return err({ kind: "invalid_default" });
+interface RegimeRunSpec {
+  readonly lineage: ReturnType<typeof makeLineage>;
+  readonly coverage: { readonly kind: "reuse"; readonly coveredCriteria: readonly string[] };
+  readonly tasks: { readonly implement: PhaseTask };
+  readonly decisionReview: DecisionReviewContext;
+  readonly ids: {
+    readonly invocationBase: string;
+    readonly decisionId: DecisionId;
+    readonly transitionId: TransitionId;
+    readonly postGateRunId: GateRunId;
+  };
+}
 
+const buildDefaultRunSpec = (ts: Timestamp): Result<RegimeRunSpec, RegimeRunError> => {
   const domainPath = parseRepoPath("src/domain");
   const libPath = parseRepoPath("src/lib");
   if (!domainPath.ok || !libPath.ok) return err({ kind: "invalid_default" });
@@ -37,58 +62,213 @@ export const runRegimeLineage = async (
 
   const lineageId = LineageId("lineage-regime-default");
   const requirementId = RequirementId("req-regime-default");
+  const decisionId = DecisionId("dec-regime-default");
   const transitionId = TransitionId("tr-regime-default");
   const postGateRunId = GateRunId("gate-regime-default-post");
-  if (!lineageId.ok || !requirementId.ok || !transitionId.ok || !postGateRunId.ok) {
+  if (
+    !lineageId.ok ||
+    !requirementId.ok ||
+    !decisionId.ok ||
+    !transitionId.ok ||
+    !postGateRunId.ok
+  ) {
     return err({ kind: "invalid_default" });
   }
 
   const acceptanceTarget = snapshotAcceptanceTarget({
     criteria: [{ id: "c1", statement: "regime pipeline merges on green POST-gate" }],
-    frozenAt: ts.value,
+    frozenAt: ts,
   });
   if (!acceptanceTarget.ok) return err({ kind: "invalid_default" });
 
-  const lineage = makeLineage({
-    lineageId: lineageId.value,
-    requirementId: requirementId.value,
-    door: classifyTwoWay(),
-    acceptanceTarget: acceptanceTarget.value,
-    declaredScope: scope.value,
-    createdAt: ts.value,
+  return ok({
+    lineage: makeLineage({
+      lineageId: lineageId.value,
+      requirementId: requirementId.value,
+      door: classifyTwoWay(),
+      acceptanceTarget: acceptanceTarget.value,
+      declaredScope: scope.value,
+      createdAt: ts,
+    }),
+    coverage: { kind: "reuse", coveredCriteria: ["c1"] },
+    tasks: {
+      implement: {
+        prompt: "Apply a trivial in-scope marker file.",
+        writes: [{ path: "src/lib/regime-marker.ts", content: "// regime default run\n" }],
+      },
+    },
+    decisionReview: {
+      summary: "Apply a trivial in-scope marker file.",
+      scope: ["src/domain", "src/lib"],
+      acceptanceCriteria: ["regime pipeline merges on green POST-gate"],
+    },
+    ids: {
+      invocationBase: "inv-regime-default",
+      decisionId: decisionId.value,
+      transitionId: transitionId.value,
+      postGateRunId: postGateRunId.value,
+    },
   });
+};
+
+const loadTaskFile = (repoRoot: string, taskFile: string): Result<DogfoodTask, RegimeRunError> => {
+  try {
+    const raw = readFileSync(resolve(repoRoot, taskFile), "utf8");
+    const parsed = parseDogfoodTask(raw);
+    if (!parsed.ok) return err({ kind: "task_invalid", detail: parsed.error.detail });
+    return ok(parsed.value);
+  } catch (error) {
+    return err({
+      kind: "task_read",
+      detail: error instanceof Error ? error.message : String(error),
+    });
+  }
+};
+
+const loadRunConfig = (
+  repoRoot: string,
+  configFile: string | undefined,
+): Result<OrchestratorConfig, RegimeRunError> => {
+  if (configFile === undefined) {
+    const loadedConfig = loadOrchestratorConfig(repoRoot);
+    return loadedConfig.ok ? ok(loadedConfig.value) : ok(defaultOrchestratorConfig());
+  }
+
+  try {
+    const raw = readFileSync(resolve(repoRoot, configFile), "utf8");
+    const parsed = parseOrchestratorToml(raw);
+    if (!parsed.ok) {
+      return err({ kind: "config_invalid", detail: JSON.stringify(parsed.error) });
+    }
+    return ok(parsed.value);
+  } catch (error) {
+    return err({
+      kind: "config_read",
+      detail: error instanceof Error ? error.message : String(error),
+    });
+  }
+};
+
+const buildTaskRunSpec = (
+  task: DogfoodTask,
+  ts: Timestamp,
+): Result<RegimeRunSpec, RegimeRunError> => {
+  const paths: RepoPath[] = [];
+  for (const path of task.scope) {
+    const parsed = parseRepoPath(path);
+    if (!parsed.ok) return err({ kind: "task_invalid", detail: `invalid scope path: ${path}` });
+    paths.push(parsed.value);
+  }
+  const scope = makeWriteScope(paths);
+  if (!scope.ok) return err({ kind: "task_invalid", detail: "scope must not be empty" });
+
+  for (const write of task.scriptedWrites) {
+    const parsed = parseRepoPath(write.path);
+    if (!parsed.ok)
+      return err({ kind: "task_invalid", detail: `invalid write path: ${write.path}` });
+  }
+
+  const suffix = String(ts);
+  const lineageId = LineageId(`lineage-dogfood-${suffix}`);
+  const requirementId = RequirementId(`req-dogfood-${suffix}`);
+  const decisionId = DecisionId(`dec-dogfood-${suffix}`);
+  const transitionId = TransitionId(`tr-dogfood-${suffix}`);
+  const postGateRunId = GateRunId(`gate-dogfood-${suffix}-post`);
+  if (
+    !lineageId.ok ||
+    !requirementId.ok ||
+    !decisionId.ok ||
+    !transitionId.ok ||
+    !postGateRunId.ok
+  ) {
+    return err({ kind: "task_invalid", detail: "could not build dogfood run ids" });
+  }
+
+  const criteria = task.acceptanceCriteria.map((statement, index) => ({
+    id: `c${index + 1}`,
+    statement,
+  }));
+  const acceptanceTarget = snapshotAcceptanceTarget({ criteria, frozenAt: ts });
+  if (!acceptanceTarget.ok) {
+    return err({ kind: "task_invalid", detail: JSON.stringify(acceptanceTarget.error) });
+  }
+
+  return ok({
+    lineage: makeLineage({
+      lineageId: lineageId.value,
+      requirementId: requirementId.value,
+      door: classifyTwoWay(),
+      acceptanceTarget: acceptanceTarget.value,
+      declaredScope: scope.value,
+      createdAt: ts,
+    }),
+    coverage: { kind: "reuse", coveredCriteria: criteria.map((criterion) => criterion.id) },
+    tasks: {
+      implement: {
+        prompt: dogfoodTaskPrompt(task),
+        writes: task.scriptedWrites,
+      },
+    },
+    decisionReview: {
+      summary: task.goal,
+      scope: task.scope,
+      acceptanceCriteria: task.acceptanceCriteria,
+    },
+    ids: {
+      invocationBase: `inv-dogfood-${suffix}`,
+      decisionId: decisionId.value,
+      transitionId: transitionId.value,
+      postGateRunId: postGateRunId.value,
+    },
+  });
+};
+
+export const runRegimeLineage = async (
+  input: RegimeRunInput,
+): Promise<Result<LineagePipelineOutcome, RegimeRunError>> => {
+  const ts = parseTimestamp(Date.now());
+  if (!ts.ok) return err({ kind: "invalid_default" });
+
+  const spec =
+    input.taskFile === undefined
+      ? buildDefaultRunSpec(ts.value)
+      : (() => {
+          const task = loadTaskFile(input.repoRoot, input.taskFile);
+          if (!task.ok) return task;
+          return buildTaskRunSpec(task.value, ts.value);
+        })();
+  if (!spec.ok) return spec;
 
   const prepared = await prepareWorktreeGate(input.repoRoot);
   if (!prepared.ok) return err({ kind: "worktree_prepare", detail: prepared.error.kind });
 
   writePassingGateFixture(prepared.value.worktreeRoot);
+  const decisionQueue = openDecisionQueueStore(
+    join(input.repoRoot, DECISION_DB_DIR, DECISION_DB_FILE),
+  );
   try {
-    const loadedConfig = loadOrchestratorConfig(input.repoRoot);
-    const config = loadedConfig.ok ? loadedConfig.value : defaultOrchestratorConfig();
+    const config = loadRunConfig(input.repoRoot, input.configFile);
+    if (!config.ok) return config;
 
     const outcome = await runLineageForRegime({
       repoRoot: input.repoRoot,
+      runtimeRoot: input.repoRoot,
       gate: { worktreeRoot: prepared.value.worktreeRoot, config: skeletonGateConfig() },
-      lineage,
-      config,
-      coverage: { kind: "reuse", coveredCriteria: ["c1"] },
-      tasks: {
-        implement: {
-          prompt: "Apply a trivial in-scope marker file.",
-          writes: [{ path: "src/lib/regime-marker.ts", content: "// regime default run\n" }],
-        },
-      },
-      ids: {
-        invocationBase: "inv-regime-default",
-        transitionId: transitionId.value,
-        postGateRunId: postGateRunId.value,
-      },
+      lineage: spec.value.lineage,
+      config: config.value,
+      coverage: spec.value.coverage,
+      tasks: spec.value.tasks,
+      ids: spec.value.ids,
+      decisionQueue,
+      decisionId: spec.value.ids.decisionId,
+      decisionReview: spec.value.decisionReview,
       at: ts.value,
     });
 
     if (!outcome.ok) return err({ kind: "pipeline", detail: JSON.stringify(outcome.error) });
     return ok(outcome.value);
   } finally {
+    decisionQueue.close();
     await prepared.value.dispose();
   }
 };

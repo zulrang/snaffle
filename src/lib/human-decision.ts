@@ -22,7 +22,7 @@ export const applyHumanDecision = (
   switch (decision) {
     case "approve":
     case "override":
-      return ok({ status: "merged" });
+      return ok({ status: "approved_for_merge" });
     case "reject":
       return ok({ status: "rejected", reason: "human_rejected" });
   }

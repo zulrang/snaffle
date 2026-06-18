@@ -38,6 +38,8 @@ export type LineageState =
   | { readonly status: "admitted" }
   | { readonly status: "running"; readonly phase: PipelinePhase }
   | { readonly status: "awaiting_human" }
+  | { readonly status: "approved_for_merge" }
+  | { readonly status: "merge_failed"; readonly reason: "post_gate_red" | "stale_approval" }
   | { readonly status: "merged" }
   | { readonly status: "rejected"; readonly reason: RejectReason };
 

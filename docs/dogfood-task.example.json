@@ -1,0 +1,11 @@
+{
+  "goal": "Apply a tiny, already-covered two-way change.",
+  "scope": ["docs"],
+  "acceptanceCriteria": ["bun run check remains green"],
+  "scriptedWrites": [
+    {
+      "path": "docs/dogfood-warmup.md",
+      "content": "# Dogfood Warmup\n\nThis scripted write exercises the current faux-backed run path.\n"
+    }
+  ]
+}

@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DEFAULT_GATE_CONFIG_REL } from "./gate-config";
+import { DEFAULT_GATE_CONFIG_REL, loadGateConfig } from "./gate-config";
 import {
   defaultOrchestratorConfig,
   loadOrchestratorConfig,
@@ -179,6 +179,40 @@ adapter = "live"
     );
     const config = must(loadOrchestratorConfig(root));
     expect(config.door.pathPatterns.persisted_schema).toEqual(["**/migrations/**"]);
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("tracked dogfood gate template parses for gate and orchestrator config", () => {
+    const raw = readFileSync(
+      new URL("../../docs/dogfood-gate.example.toml", import.meta.url),
+      "utf8",
+    );
+    const orchestrator = must(parseOrchestratorToml(raw));
+    const root = mkdtempSync(join(tmpdir(), "orchestrator-dogfood-template-"));
+    mkdirSync(join(root, ".orchestrator"), { recursive: true });
+    writeFileSync(join(root, DEFAULT_GATE_CONFIG_REL), raw);
+
+    const gate = must(loadGateConfig(root));
+
+    expect(gate.repoMode).toBe("wrap");
+    expect(gate.stages).toContainEqual({
+      kind: "full_tests",
+      command: ["bun", "run", "check"],
+    });
+    expect(orchestrator.tiers.light).toEqual({
+      provider: "openrouter",
+      model: "google/gemini-3-flash-preview",
+    });
+    expect(orchestrator.tiers.mid).toEqual(orchestrator.tiers.light);
+    expect(orchestrator.tiers.heavy).toEqual(orchestrator.tiers.light);
+    expect(orchestrator.budget.persist).toBe(true);
+    expect(orchestrator.hitl.twoWaySampleRate).toBe(1);
+
+    const protectedPaths = orchestrator.door.pathPatterns.public_contract ?? [];
+    expect(protectedPaths).toContain("src/lib/gate-*");
+    expect(protectedPaths).toContain("src/lib/scope-guard.ts");
+    expect(protectedPaths).toContain("docs/dogfood-gate.example.toml");
+
     rmSync(root, { recursive: true, force: true });
   });
 });

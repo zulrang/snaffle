@@ -47,6 +47,23 @@ describe("phase1 CLI — argv parsing", () => {
       ownerId: "cli-a",
       provenanceLimit: 10,
     });
+    expect(
+      parseCliArgs([
+        "run",
+        "--config-file",
+        "docs/dogfood-gate.example.toml",
+        "--task-file",
+        "docs/task.json",
+      ]),
+    ).toEqual({
+      command: "run",
+      repoRoot: process.cwd(),
+      variant: "merge_success",
+      legacySkeleton: false,
+      provenanceLimit: 10,
+      configFile: "docs/dogfood-gate.example.toml",
+      taskFile: "docs/task.json",
+    });
     expect(parseCliArgs(["decisions", "list", "--repo", "/tmp/ws"])).toEqual({
       command: "decisions",
       repoRoot: "/tmp/ws",
@@ -54,6 +71,14 @@ describe("phase1 CLI — argv parsing", () => {
       legacySkeleton: false,
       provenanceLimit: 10,
       decisionsCommand: "list",
+    });
+    expect(parseCliArgs(["resume", "--lineage", "lineage-1", "--repo", "/tmp/ws"])).toEqual({
+      command: "resume",
+      repoRoot: "/tmp/ws",
+      variant: "merge_success",
+      legacySkeleton: false,
+      provenanceLimit: 10,
+      lineageId: "lineage-1",
     });
     expect(parseCliArgs(["nope"])).toBeUndefined();
   });

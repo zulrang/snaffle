@@ -1,8 +1,9 @@
+import { join } from "node:path";
 import { type AgentResult, isScopeCompliant } from "../domain/agent";
 import type { FailureVerdict, RoutingAction } from "../domain/failure";
 import { type GateReport, gatePassed } from "../domain/gate";
 import type { DecisionId, GateRunId, InvocationId, TransitionId } from "../domain/ids";
-import { InvocationId as makeInvocationId } from "../domain/ids";
+import { GenerationId, InvocationId as makeInvocationId } from "../domain/ids";
 import type { Lineage } from "../domain/lineage";
 import { makeWriteScope, parseRepoPath } from "../domain/scope";
 import { err, ok, type Result, type Timestamp } from "../domain/shared";
@@ -10,7 +11,11 @@ import type { LineageState, StateTransition } from "../domain/transition";
 import { AGENT_DEFINITIONS } from "../lib/agents";
 import type { BudgetGovernorState } from "../lib/budget-governor";
 import { createBudgetGovernor } from "../lib/budget-governor";
-import { type DecisionQueueStore, enqueueAwaitingHuman } from "../lib/decision-queue";
+import {
+  type DecisionQueueStore,
+  type DecisionReviewContext,
+  enqueueAwaitingHuman,
+} from "../lib/decision-queue";
 import {
   EXPAND_CONTRACT_PHASES,
   type ExpandContractPlan,
@@ -25,18 +30,26 @@ import {
 import type { OracleCoverageDecision } from "../lib/oracle-coverage";
 import type { OracleFreezeRecord } from "../lib/oracle-freeze";
 import type { OrchestratorConfig } from "../lib/orchestrator-config";
+import { scopePaths, writeParkedChangeArtifact } from "../lib/parked-change-store";
+import {
+  openProvenanceStore,
+  PROVENANCE_DB_DIR,
+  PROVENANCE_DB_FILE,
+} from "../lib/provenance-store";
 import { type PipelinePhase, type RegimePlan, selectRegimePlan } from "../lib/regime-plan";
 import type { RolloutClient, RolloutGuardrailOutcome } from "../lib/rollout-guardrail";
 import { detectStatefulChange } from "../lib/stateful-change";
 import { shouldSampleTwoWayMerge, twoWaySampleRateFromConfig } from "../lib/two-way-sampler";
 import { validateAgentResult } from "../lib/validate-agent-result";
 import { applyWritesToWorktree } from "../lib/worktree-writes";
+import type { CapturedWrite } from "../pi/invoke-stub-agent";
 import type { PromptCacheHint } from "../pi/prompt-cache";
 import { reviewLineageTransition } from "./control-plane-transition";
 import type { WorktreeGateContext } from "./gate-invocation";
 import { runPostGateInWorktree } from "./gate-invocation";
 import { invokeAgent } from "./invoke-agent";
 import { runOracleAuthoringPhase } from "./oracle-authoring";
+import { logStubGeneration } from "./provenance-invocation";
 import type { ScopedWriteAttempt, ScopeEvent } from "./scoped-invocation";
 import { stepBudget } from "./skeleton-run";
 import {
@@ -51,8 +64,8 @@ import {
  * validate, driven by a regime plan (S4). Each agent phase is a composed
  * invocation (W2/W3); the oracle is frozen before implement (W4); the budget is
  * checked between phases (D22); and the terminal transition is derived in the
- * control plane (D19) — auto-merge for two-way, await-human for one-way. A red
- * validate gate is classified and routed (Phase-3 failure routing), never merged.
+ * control plane (D19) — green two-way can continue, sampled/one-way parks for
+ * HITL. A red validate gate is classified and routed, never merged.
  */
 
 const runningState: LineageState = { status: "running", phase: "implement" };
@@ -84,6 +97,8 @@ export interface PipelineIds {
 
 export interface LineagePipelineInput {
   readonly repoRoot: string;
+  /** Runtime state root for provenance/budget stores; defaults to the isolated worktree. */
+  readonly runtimeRoot?: string;
   readonly gate: WorktreeGateContext;
   readonly lineage: Lineage;
   readonly plan: RegimePlan;
@@ -97,6 +112,7 @@ export interface LineagePipelineInput {
   /** When set, parks enqueue a durable human decision (W5/W9). */
   readonly decisionQueue?: DecisionQueueStore;
   readonly decisionId?: DecisionId;
+  readonly decisionReview?: DecisionReviewContext;
   /** Present when W1 detects a stateful change (D9, W3). */
   readonly expandContractPlan?: ExpandContractPlan;
   /** Injected rollout client; defaults to dry-run when rollout is enabled (W5). */
@@ -143,6 +159,7 @@ export type PipelineError =
   | { readonly kind: "scope_violation"; readonly detail: string }
   | { readonly kind: "oracle_authoring"; readonly detail: string }
   | { readonly kind: "worktree_apply"; readonly detail: string }
+  | { readonly kind: "provenance"; readonly detail: string }
   | { readonly kind: "transition"; readonly detail: string }
   | { readonly kind: "budget_paused"; readonly detail: string }
   | { readonly kind: "missing_task"; readonly phase: PipelinePhase }
@@ -176,24 +193,101 @@ const advanceBudget = (
 const enqueueHumanDecision = (
   input: LineagePipelineInput,
   kind: "merge_hold" | "two_way_sample",
-): void => {
-  if (input.decisionQueue === undefined || input.decisionId === undefined) return;
+  review?: DecisionReviewContext,
+  writes: readonly CapturedWrite[] = [],
+): Result<void, PipelineError> => {
+  if (input.decisionQueue === undefined || input.decisionId === undefined) return ok(undefined);
+  const parked = writeParkedChangeArtifact(input.runtimeRoot ?? input.gate.worktreeRoot, {
+    lineageId: input.lineage.lineageId,
+    plan: input.plan,
+    config: input.config,
+    gateConfig: input.gate.config,
+    scope: scopePaths(input.lineage.declaredScope),
+    writes: writes.map((write) => ({ path: String(write.path), content: write.content })),
+    createdAt: input.at,
+  });
+  if (!parked.ok) return err({ kind: "provenance", detail: JSON.stringify(parked.error) });
+
   if (kind === "merge_hold") {
-    enqueueAwaitingHuman(input.decisionQueue, {
+    const enqueued = enqueueAwaitingHuman(input.decisionQueue, {
       decisionId: input.decisionId,
       lineageId: input.lineage.lineageId,
       door: input.lineage.door,
       enqueuedAt: input.at,
+      ...(review === undefined ? {} : { review }),
+      parkedChangeHash: String(parked.value.artifactHash),
     });
-    return;
+    if (!enqueued.ok) return err({ kind: "provenance", detail: JSON.stringify(enqueued.error) });
+    return ok(undefined);
   }
-  input.decisionQueue.enqueue({
+  const enqueued = input.decisionQueue.enqueue({
     decisionId: input.decisionId,
     lineageId: input.lineage.lineageId,
     kind: "two_way_sample",
     door: input.lineage.door,
     enqueuedAt: input.at,
+    ...(review === undefined ? {} : { review }),
+    parkedChangeHash: String(parked.value.artifactHash),
   });
+  if (!enqueued.ok) return err({ kind: "provenance", detail: JSON.stringify(enqueued.error) });
+  return ok(undefined);
+};
+
+const reviewWithWrites = (
+  base: DecisionReviewContext | undefined,
+  writes: readonly CapturedWrite[],
+): DecisionReviewContext | undefined => {
+  if (base === undefined) return undefined;
+  return {
+    ...base,
+    changedPaths: writes.map((write) => String(write.path)),
+    writePreviews: writes.map((write) => ({
+      path: String(write.path),
+      content: write.content,
+    })),
+  };
+};
+
+const logImplementerProvenance = (input: {
+  readonly pipeline: LineagePipelineInput;
+  readonly invocationId: InvocationId;
+  readonly prompt: string;
+  readonly metadata: Parameters<typeof logStubGeneration>[1]["metadata"];
+  readonly writes: readonly CapturedWrite[];
+  readonly result: AgentResult;
+}): Result<void, PipelineError> => {
+  const generationId = GenerationId(`gen-${input.invocationId}-${input.pipeline.at}`);
+  if (!generationId.ok) {
+    return err({ kind: "invalid_id", detail: `gen-${input.invocationId}-${input.pipeline.at}` });
+  }
+
+  const store = openProvenanceStore(
+    join(
+      input.pipeline.runtimeRoot ?? input.pipeline.gate.worktreeRoot,
+      PROVENANCE_DB_DIR,
+      PROVENANCE_DB_FILE,
+    ),
+  );
+  try {
+    const logged = logStubGeneration(store, {
+      generationId: generationId.value,
+      lineageId: input.pipeline.lineage.lineageId,
+      invocationId: input.invocationId,
+      prompt: input.prompt,
+      writes: input.writes.map((write) => ({
+        path: String(write.path),
+        content: write.content,
+      })),
+      metadata: input.metadata,
+      scope: input.pipeline.lineage.declaredScope,
+      agentResult: input.result,
+      recordedAt: input.pipeline.at,
+    });
+    if (!logged.ok) return err({ kind: "provenance", detail: JSON.stringify(logged.error) });
+    return ok(undefined);
+  } finally {
+    store.close();
+  }
 };
 
 const humanHoldTransition = (reviewed: StateTransition): StateTransition => ({
@@ -236,6 +330,7 @@ export const runLineagePipeline = async (
   let budget = createBudgetGovernor();
   let oracleFreeze: OracleFreezeRecord | undefined;
   let implementResult: AgentResult | undefined;
+  let implementWrites: readonly CapturedWrite[] = [];
   const frozenAt = input.frozenAt ?? 1;
   const cacheHint = input.cacheHint;
 
@@ -382,12 +477,23 @@ export const runLineagePipeline = async (
 
       const applied = applyWritesToWorktree(
         input.gate.worktreeRoot,
-        task.writes.map((write) => ({ path: write.path, content: write.content })),
+        invoked.value.writes.map((write) => ({ path: write.path, content: write.content })),
       );
       if (!applied.ok)
         return err({ kind: "worktree_apply", detail: JSON.stringify(applied.error) });
 
       implementResult = validated.value;
+      implementWrites = invoked.value.writes;
+
+      const logged = logImplementerProvenance({
+        pipeline: input,
+        invocationId: invocationId.value,
+        prompt: task.prompt,
+        metadata: invoked.value.metadata,
+        writes: invoked.value.writes,
+        result: validated.value,
+      });
+      if (!logged.ok) return logged;
 
       const advanced = advanceBudget(
         budget,
@@ -455,7 +561,13 @@ export const runLineagePipeline = async (
       if (status === "merged") {
         const sampleRate = twoWaySampleRateFromConfig(input.config);
         if (shouldSampleTwoWayMerge(input.lineage.lineageId, input.lineage.door, sampleRate)) {
-          enqueueHumanDecision(input, "two_way_sample");
+          const parked = enqueueHumanDecision(
+            input,
+            "two_way_sample",
+            reviewWithWrites(input.decisionReview, implementWrites),
+            implementWrites,
+          );
+          if (!parked.ok) return parked;
           return ok({
             phases,
             terminal: {
@@ -468,7 +580,13 @@ export const runLineagePipeline = async (
         return finalizeMergedTerminal(input, phases, reviewed.value.transition, postGate);
       }
       if (status === "awaiting_human") {
-        enqueueHumanDecision(input, "merge_hold");
+        const parked = enqueueHumanDecision(
+          input,
+          "merge_hold",
+          reviewWithWrites(input.decisionReview, implementWrites),
+          implementWrites,
+        );
+        if (!parked.ok) return parked;
         return ok({
           phases,
           terminal: { kind: "awaiting_human", transition: reviewed.value.transition, postGate },

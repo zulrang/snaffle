@@ -9,6 +9,7 @@ import type { ModelRef, OrchestratorConfig } from "../lib/orchestrator-config";
 import { loadSkills, type SkillLoadError } from "../lib/skills";
 import { resolveModelTier } from "../lib/tier-router";
 import {
+  type CapturedWrite,
   invokeStubAgentSequence,
   type StubInvocationError,
   type StubInvocationMetadata,
@@ -19,8 +20,9 @@ import type { ScopedWriteAttempt, ScopeEvent } from "./scoped-invocation";
 /**
  * Real-agent invocation (W2). Composes an agent definition's skills into the
  * stable prefix (D26), resolves its tier to a provider-neutral model (D18), and
- * drives the faux-backed agent through the same scoped adapter as the stub. The
- * structured result is evidence only; the control plane derives transitions (D19).
+ * drives the agent through the same scoped adapter as the stub. Default tests stay
+ * faux-backed; `SNAFFLE_LIVE_MODEL=1` switches to the config-resolved live model.
+ * The structured result is evidence only; the control plane derives transitions (D19).
  */
 
 export interface AgentInvocationInput {
@@ -44,6 +46,7 @@ export interface AgentInvocationOutcome {
   readonly agentResult: AgentResult;
   readonly metadata: StubInvocationMetadata;
   readonly scopeEvents: readonly ScopeEvent[];
+  readonly writes: readonly CapturedWrite[];
   readonly modelRef: ModelRef;
   readonly systemPrompt: string;
 }
@@ -52,7 +55,12 @@ export type AgentInvocationError =
   | { readonly kind: "skill_load"; readonly detail: SkillLoadError }
   | StubInvocationError;
 
-/** Invoke one real agent: compose skills → resolve tier → run scoped (faux). */
+const liveModelEnabled = (): boolean => {
+  const { SNAFFLE_LIVE_MODEL } = process.env;
+  return SNAFFLE_LIVE_MODEL === "1";
+};
+
+/** Invoke one real agent: compose skills → resolve tier → run scoped. */
 export const invokeAgent = async (
   input: AgentInvocationInput,
 ): Promise<Result<AgentInvocationOutcome, AgentInvocationError>> => {
@@ -76,6 +84,7 @@ export const invokeAgent = async (
       ...(input.workspaceRoot === undefined ? {} : { workspaceRoot: input.workspaceRoot }),
       ...(input.oracleFreeze === undefined ? {} : { oracleFreeze: input.oracleFreeze }),
       ...(input.cacheHint === undefined ? {} : { promptCache: input.cacheHint }),
+      ...(liveModelEnabled() ? { invocationMode: "live" as const } : {}),
       onScopeDenial: (denial, toolName) => {
         scopeEvents.push({
           kind: "write_denied",
@@ -103,6 +112,7 @@ export const invokeAgent = async (
     agentResult,
     metadata: result.value.metadata,
     scopeEvents,
+    writes: result.value.writes,
     modelRef,
     systemPrompt,
   });

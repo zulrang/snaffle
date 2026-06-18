@@ -1,0 +1,52 @@
+# Copy this to .orchestrator/gate.toml for local dogfooding.
+# .orchestrator/ is runtime state and should stay untracked.
+
+tier = "full"
+repo_mode = "wrap"
+
+[[stages]]
+kind = "full_tests"
+command = ["bun", "run", "check"]
+
+# Initial dogfood mapping: use the same live Pi model for every tier until
+# Snaffle has enough run data to justify cheaper/heavier splits.
+[tiers.light]
+provider = "openrouter"
+model = "google/gemini-3-flash-preview"
+
+[tiers.mid]
+provider = "openrouter"
+model = "google/gemini-3-flash-preview"
+
+[tiers.heavy]
+provider = "openrouter"
+model = "google/gemini-3-flash-preview"
+
+[budget]
+rolling_window_tokens = 50000
+session_tokens = 25000
+per_change_tokens = 10000
+kill_switch_tokens = 75000
+persist = true
+
+[hitl]
+two_way_sample_rate = 1.0
+
+[door.paths]
+public_contract = [
+  "src/lib/gate-*",
+  "src/lib/scope-guard.ts",
+  "src/lib/oracle-freeze.ts",
+  "src/lib/door-classifier.ts",
+  "src/domain/door.ts",
+  "src/domain/transition.ts",
+  "src/spine/control-plane-transition.ts",
+  "src/spine/phase-pipeline.ts",
+  "src/spine/regime-cli.ts",
+  "src/pi/invoke-stub-agent.ts",
+  "src/extensions/path-protection.ts",
+  "scripts/guard-*",
+  ".github/workflows/**",
+  "package.json",
+  "docs/dogfood-gate.example.toml",
+]

@@ -82,7 +82,7 @@ export const runOracleAuthoringPhase = async (
   // The agent supplies paths; the spine applies content into the isolated worktree (W8).
   const applied = applyWritesToWorktree(
     input.worktreeRoot,
-    input.oracleWrites.map((write) => ({ path: write.path, content: write.content })),
+    authored.value.writes.map((write) => ({ path: write.path, content: write.content })),
   );
   if (!applied.ok) return err({ kind: "apply_failed", detail: JSON.stringify(applied.error) });
 
