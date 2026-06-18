@@ -42,6 +42,6 @@ Each box names the test that proves it. `bun run check` is green (270 tests).
 ## Deferred (per plan §6 cut lines)
 
 - **D26 cache-affinity scheduling tiebreak (W4)** — FIFO admission only; prefix-affinity ordering later.
-- **Live GitHub integration (W7)** — dry-run/injected client + local decision queue only; real `gh`/Octokit deferred.
+- **Live GitHub integration (W7)** — dry-run default in CI; opt-in live `GhPrAdapter` shipped in Phase 7.
 - **Decision TUI (W8)** — plain `list/approve/reject` CLI only.
 - **Risk-model sophistication in two-way sampling (W6)** — flat config sample rate; richer weighting later.

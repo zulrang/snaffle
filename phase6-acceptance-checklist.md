@@ -23,7 +23,7 @@ Each box names the test that proves it. `bun run check` is green.
 - [x] **W8** Span store + gate span pairs — PRE/POST attribution — `src/lib/gate-spans.test.ts`
 - [x] **W9** Governance policy pack loader — optional `[governance]` section — `src/lib/governance-policy.test.ts`
 - [x] **W10** Name-branching guardrail — CI script flags stage literal branching — `scripts/guard-name-branching.mjs`
-- [ ] **W11** Durable budget ledger — deferred (Phase 3/6 cut line)
+- [x] **W11** Durable budget ledger — deferred in Phase 6; shipped in Phase 7 — `src/lib/budget-ledger.test.ts`, `src/spikes/p7-s4-budget-ledger.test.ts`
 - [x] **W12** Spine rollout integration loop — stateful + guardrail + escape + spans + default path wiring — `src/spine/phase6-integration.test.ts`, `src/spine/spine-wiring.test.ts`
 - [x] **W13** Phase 6 acceptance checklist — `phase6-acceptance-checklist.md`
 
@@ -36,7 +36,7 @@ Each box names the test that proves it. `bun run check` is green.
 
 ## Deferred (per plan §7 cut lines)
 
-- **W11 durable budget ledger** — in-memory governor remains default.
-- **Live metrics/flags vendor integration (W5)** — injected client only.
+- **W11 durable budget ledger** — shipped in Phase 7 (`[budget].persist`); in-memory remains default when disabled.
+- **Live metrics/flags vendor integration (W5)** — injected client only (Phase 7 adds webhook shim).
 - **Governance pack richness (W9)** — skeleton pack + W10 lint guardrail only.
-- **spec_traceability / smoke_budget gate stages** — not added in Phase 6.
+- **spec_traceability / smoke_budget gate stages** — shipped in Phase 7 optional gate stages.

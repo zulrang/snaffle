@@ -4,46 +4,46 @@ overview: Plan Phase 7 (live GitHub/rollout adapters, durable budget ledger, esc
 todos:
   - id: s1-gh-adapter
     content: "S1: Live gh PR adapter contract — degrade like dry-run on failure"
-    status: pending
+    status: completed
   - id: s2-live-rollout
     content: "S2: Live rollout vendor adapter behind RolloutClient"
-    status: pending
+    status: completed
   - id: s3-escape-remediation
     content: "S3: Escape → criteria remediation hook — pure lib, template-driven"
-    status: pending
+    status: completed
   - id: s4-budget-ledger
     content: "S4: Durable budget ledger SQLite drop-in"
-    status: pending
+    status: completed
   - id: w1-gh-pr-adapter
     content: "W1: GhPrAdapter wired opt-in via config"
-    status: pending
+    status: completed
   - id: w2-live-rollout-client
     content: "W2: LiveRolloutClient + rollout.adapter config"
-    status: pending
+    status: completed
   - id: w3-ramp-cli
     content: "W3: orchestrator rollout status | resume CLI"
-    status: pending
+    status: completed
   - id: w4-budget-persist
     content: "W4: Optional budget persistence (W11 carry)"
-    status: pending
+    status: completed
   - id: w5-remediation-emitter
     content: "W5: proposeEscapeRemediation + persist under .orchestrator/"
-    status: pending
+    status: completed
   - id: w6-remediation-cli
     content: "W6: escapes propose | apply-criteria CLI"
-    status: pending
+    status: completed
   - id: w7-gate-stages
     content: "W7: Optional spec_traceability + smoke_budget gate stages"
-    status: pending
+    status: completed
   - id: w8-live-model-smoke
     content: "W8: Env-gated real-model smoke test"
-    status: pending
+    status: completed
   - id: w9-production-loop
     content: "W9: Spine production loop integration (offline mirror in CI)"
-    status: pending
+    status: completed
   - id: w10-acceptance
     content: "W10: phase7-acceptance-checklist.md + mark Phase 7 complete"
-    status: pending
+    status: completed
 isProject: false
 ---
 
@@ -52,6 +52,8 @@ isProject: false
 **Spec:** D8 (live post-launch), D11 (live PR), D22 (durable budget), D24 (escape feedback)  
 **Build plan:** `deterministic-agent-delivery-pipeline-plan.md` §8  
 **Prerequisite:** Phase 6 complete (`f1631f6`, 313 tests)
+
+**Status:** Complete — see `phase7-acceptance-checklist.md` and commit `d678ec2`.
 
 ## Risk order
 

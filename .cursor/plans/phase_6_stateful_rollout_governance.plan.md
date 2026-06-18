@@ -4,55 +4,55 @@ overview: Plan Phase 6 (expand/contract, post-launch metric gate, oracle escapes
 todos:
   - id: s1-expand-contract-plan
     content: "S1: Expand/contract plan from stateful door signals — stable multi-phase plan, no-op for non-stateful"
-    status: pending
+    status: completed
   - id: s2-metric-guardrail
     content: "S2: Post-launch metric guardrail boundary — injected client, arm/poll/rollback, no live network"
-    status: pending
+    status: completed
   - id: s3-oracle-escape-store
     content: "S3: Oracle escape record + cluster query — durable idempotent store"
-    status: pending
+    status: completed
   - id: s4-gate-spans
     content: "S4: Gate span promotion — PRE/POST linked spans with lineage/batch attribution"
-    status: pending
+    status: completed
   - id: w1-stateful-detector
     content: "W1: Stateful change detector (D9) — sole entry point for expand/contract"
-    status: pending
+    status: completed
   - id: w2-expand-contract-emitter
     content: "W2: Expand/contract emitter — hashed phases persisted under .orchestrator/"
-    status: pending
+    status: completed
   - id: w3-pipeline-phases
     content: "W3: Expand/contract pipeline phases in full regime when stateful"
-    status: pending
+    status: completed
   - id: w4-rollout-config
     content: "W4: Post-launch metric gate config — [rollout] TOML section compiled into plan"
-    status: pending
+    status: completed
   - id: w5-rollout-runner
     content: "W5: Rollout guardrail runner — arm after merge, auto-rollback on breach"
-    status: pending
+    status: completed
   - id: w6-escape-logger
     content: "W6: Oracle-escape logger wired from HITL, sample, metric sources"
-    status: pending
+    status: completed
   - id: w7-escape-cli
     content: "W7: escapes list | report CLI"
-    status: pending
+    status: completed
   - id: w8-span-store
     content: "W8: Span store + gate/batch wiring"
-    status: pending
+    status: completed
   - id: w9-governance-pack
     content: "W9: Governance policy pack loader (optional, plan-compiled)"
-    status: pending
+    status: completed
   - id: w10-name-branching-guard
     content: "W10: Name-branching AST/lint guardrail for lib/ and spine/"
-    status: pending
+    status: completed
   - id: w11-budget-ledger
     content: "W11: Durable budget ledger (optional cut-line)"
-    status: pending
+    status: completed
   - id: w12-integration
     content: "W12: Spine rollout integration loop — stateful + guardrail + escapes + spans"
-    status: pending
+    status: completed
   - id: w13-acceptance
     content: "W13: phase6-acceptance-checklist.md + mark Phase 6 complete"
-    status: pending
+    status: completed
 isProject: false
 ---
 
@@ -61,6 +61,8 @@ isProject: false
 **Spec:** D8 (post-launch), D9, D10 (spans), D15, D24  
 **Build plan:** `deterministic-agent-delivery-pipeline-plan.md` §7  
 **Prerequisite:** Phase 5 complete (`0e25ee5`, 270 tests)
+
+**Status:** Complete — see `phase6-acceptance-checklist.md` and commit `f1631f6`.
 
 ## Risk order
 

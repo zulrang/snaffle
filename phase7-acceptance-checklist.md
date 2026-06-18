@@ -34,5 +34,5 @@ Each box names the test that proves it. `bun run check` is green (342 tests, 1 e
 
 ## Deferred (per plan §8 cut lines)
 
-- **Multi-vendor rollout matrix** — webhook shim only.
-- **Live `gh` env-gated integration** — mock exec in CI; live path uses `defaultGhExec`.
+- **Multi-vendor rollout matrix** — webhook shim only; one backend is enough for v1.
+- **Live `gh` env-gated integration** — mock exec in CI; opt-in live mode via `GhPrAdapter` + `GH_TOKEN`.
