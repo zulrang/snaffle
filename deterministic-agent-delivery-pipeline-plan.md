@@ -397,3 +397,77 @@ Four spikes (two M rollout/stateful, two S escape/spans) plus roughly four S and
 S1 → W1 → W2 → W3 ; S2 → W4 → W5 ; S3 → W6 → W7 ; S4 → W8 ; W9 → W10 | W3 + W5 + W8 → W12 ; W11 ‖ (optional) ; W13 last. (Live vendor adapters, full governance pack, and extra gate stages are cut-line.)
 
 **Status: complete** (spikes S1–S4 + work items W1–W10, W12–W13 shipped; W11 deferred per cut line 2). Spine wiring (`spine-wiring.ts`) connects gate spans, post-merge rollout, and oracle escapes on the default validate/merge and decisions-reject paths. Acceptance in `phase6-acceptance-checklist.md`.
+
+---
+
+## 8. Phase 7 — Production Hardening, Live Adapters, Escape Feedback (detailed)
+
+Realizes deferred cut lines from Phases 2–6 and closes the OSS v1 operator loop: live GitHub and rollout vendor boundaries (still swappable), durable budget persistence, optional extra gate stages, and an escape-data-driven feedback path toward criteria/test-author fixes — *without* reintroducing a stochastic grader into the merge path unless escape clustering proves a residual class is irreducible (D24).
+
+**Goal.** Ship production-ready adapters behind the existing injected-client seams, make long-running operator sessions durable where cut lines deferred them, and turn oracle-escape clusters into actionable remediation signals (criteria template updates, test-author prompts, operator ramp decisions). Live network calls stay behind env-gated integration; default CI remains offline with faux agents and dry-run/injected clients. *Without* a standing LLM grader in acceptance (D24 deferred evaluation only).
+
+**Why this shape.** Phases 1–6 proved the control-plane spine end-to-end offline. The remaining production risks are adapter fidelity (does `gh` / a flags vendor behave like the dry-run contract?), operator durability (budget counters across restarts), and closing the D24 feedback loop (escapes today are logged — Phase 7 makes them drive fixes). Grader re-evaluation is explicitly last and data-gated.
+
+**Current-state anchors.**
+- PR adapter boundary proven offline (`src/lib/pr-adapter.ts`, Phase 5 S4); live `gh` adapter not wired.
+- Rollout guardrail proven with injected client (`src/lib/rollout-guardrail.ts`, `src/spine/spine-wiring.ts`); vendor adapters cut-line.
+- Oracle escapes + cluster report shipped (`src/lib/oracle-escape.ts`, `src/spine/escapes-cli.ts`); no automated criteria/test-author remediation loop yet.
+- Budget governor in-memory only (W11 deferred three times).
+- Gate stages `spec_traceability` / `smoke_budget` not implemented (Phase 2/6 cut lines).
+- Real-model tests belong env-gated per AGENTS.md; not in default CI.
+
+### Spikes (retire uncertainty first)
+
+**S1 — Live `gh` PR adapter contract.** (M) Map dry-run PR payload to `gh pr create` / check-run updates; failures degrade to local queue exactly like dry-run. *done_when:* env-gated test with `GH_TOKEN` fixture or recorded HTTP stub proves create + status update; offline default unchanged.
+
+**S2 — Live rollout vendor adapter.** (M) One concrete flags/metrics backend (e.g. LaunchDarkly + Datadog *or* a minimal HTTP webhook shim) behind `RolloutClient`; config selects injected vs live. *done_when:* env-gated integration arms/polls/rolls back once; CI uses injected client only.
+
+**S3 — Escape → criteria remediation hook.** (S) Pure `lib/` function: given escape cluster + frozen acceptance snapshot, emit a typed remediation proposal (criteria delta + test-author prompt delta) — no LLM, template-driven. *done_when:* fixture cluster produces stable proposal hash; invalid/missing snapshot refused.
+
+**S4 — Durable budget ledger.** (S) SQLite counters keyed by workspace + window; drop-in behind existing governor interface. *done_when:* counters survive restart when enabled; kill-switch still trips; in-memory remains default when disabled.
+
+### Work items
+
+**W1 — `GhPrAdapter` (D11).** (M; S1) Implement live client behind `PrAdapterClient`; wire spine/CLI opt-in via config. *done_when:* dry-run remains default; live mode creates PR from provenance payload in env-gated test; remote failure enqueues locally.
+
+**W2 — `LiveRolloutClient` (D8).** (M; S2) Vendor adapter implementing `RolloutClient`; `[rollout].adapter = "injected" | "live"`. *done_when:* post-merge path unchanged offline; live adapter passes S2 env-gated test.
+
+**W3 — Operator ramp CLI (D8).** (S; W2) `orchestrator rollout status | resume` — surfaces armed flags, last poll, breach/rollback, pending operator decision after auto-rollback. *done_when:* CLI reads rollout outcome + escape store; empty/disabled is not an error.
+
+**W4 — Durable budget ledger (D22; W11 carry).** (M; S4) Optional `[budget].persist = true` SQLite backing for `BudgetGovernorState`. *done_when:* restart survival test; disabled → in-memory unchanged.
+
+**W5 — Escape remediation emitter (D24).** (M; S3) `proposeEscapeRemediation(cluster, snapshot) → RemediationProposal`; persisted under `.orchestrator/`. *done_when:* cluster from W7 report produces proposal; tamper detected on reload.
+
+**W6 — Remediation CLI (D24).** (S; W5) `orchestrator escapes propose | apply-criteria` — surfaces proposals; apply-criteria updates frozen snapshot only through control-plane re-freeze path (never silent live-source edit). *done_when:* propose prints JSON; apply refuses stale snapshot.
+
+**W7 — Optional gate stages (D8).** (M) `spec_traceability` and `smoke_budget` stages in `gate-runner.ts` when enabled in repo `gate.toml`. *done_when:* each stage has offline fixture red/green; disabled by default in skeleton fixture.
+
+**W8 — Env-gated real-model smoke.** (S) Single integration test behind `SNAFFLE_LIVE_MODEL=1` using faux bypass or one cheap model call; documents provider env vars. *done_when:* skipped in default CI; passes locally when env set.
+
+**W9 — Spine production loop (W1–W3, W5).** (M) Compose live adapters + ramp CLI + escape remediation under writer lock on a golden-path integration test (env-gated live, offline mirror in CI). *done_when:* offline mirror test proves wiring; live test documented in checklist.
+
+**W10 — Phase 7 acceptance + checklist.** (S) `phase7-acceptance-checklist.md`; mark Phase 7 complete. *done_when:* `bun run check` + `npm run check:node` green; ≥1 test per spike S1–S4 and W1–W9.
+
+### Cut lines (shed in this order)
+
+1. **Live vendor breadth (W2)** — ship one backend + HTTP shim; defer multi-vendor matrix.
+2. **Grader re-evaluation (D24)** — do not add stochastic grader; only W5/W6 proposal path.
+3. **Gate stage richness (W7)** — ship one stage if time short; integrity floor unchanged.
+4. **W4 budget ledger** — fourth deferral acceptable if S4 slips.
+5. **TUI polish** — CLI text output only; no interactive TUI.
+
+**Non-cuttable integrity floor:** pre-merge gate sole merge blocker; post-launch never fakes green; escape proposals never mutate lineage without control-plane re-freeze; live adapters must degrade like dry-run on failure; Phases 1–6 floor unchanged.
+
+### Exit criteria
+
+W9/W10 green in CI under Node (offline); env-gated live adapter tests documented; escape cluster produces remediation proposal; optional budget persistence survives restart; operator can inspect rollout status after merge. Production OSS v1 is operable with measured escape feedback — grader decision deferred until escape data warrants it.
+
+### Estimate
+
+Four spikes (two M adapter, two S ledger/remediation) plus roughly three S and six M work items. Cost dominated by adapter contract fidelity (S1/S2/W1/W2) and escape remediation without opening the grader door (S3/W5/W6).
+
+### Dependency order
+
+S1 → W1 ; S2 → W2 → W3 ; S3 → W5 → W6 ; S4 → W4 ; W7 ‖ W8 ; W1 + W2 + W5 → W9 → W10.
+
+**Status: not started** (Phase 6 complete at `f1631f6`). Detailed cursor plan: `.cursor/plans/phase_7_production_hardening.plan.md`.
