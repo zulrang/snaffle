@@ -286,7 +286,7 @@ Realizes spec **D11** (batched human decision queue) and **D20** (frozen accepta
 
 **W7 — GitHub PR adapter + commit scaffolder (D11 surface).** (M; S4) Render the commit message + PR body from provenance, create/update the PR, and post gate status through an injected client; lands the deferred `commit-pr` skill body. *done_when:* the dry-run client receives a well-formed commit+PR payload from provenance; a remote failure degrades to the local queue, never blocking the gate; no live network in CI. *(Live `gh`/Octokit integration is cut-line.)*
 
-**W8 — Decision CLI + default-path switch.** (S; W5) `orchestrator decisions list | approve | reject` over the queue, and wire `orchestrator run` to `runLineageForRegime`, retiring the skeleton from the default CLI. *done_when:* the CLI lists pending decisions, approve merges and reject closes the named lineage, and `orchestrator run` drives the regime pipeline (skeleton reachable only behind an explicit legacy flag).
+**W8 — Decision CLI + default-path switch.** (S; W5) `snaffle decisions list | approve | reject` over the queue, and wire `snaffle run` to `runLineageForRegime`, retiring the skeleton from the default CLI. *done_when:* the CLI lists pending decisions, approve merges and reject closes the named lineage, and `snaffle run` drives the regime pipeline (skeleton reachable only behind an explicit legacy flag).
 
 **W9 — Spine concurrency integration loop (W1–W8).** (M) Compose snapshotter + scheduler + admission + per-lineage pipeline + queue under one lock. *done_when:* an integration test drives a batch where non-conflicting lineages merge in parallel, a conflicting pair serializes, a one-way lineage parks and merges only after a queued approval, a sampled two-way parks, and an unsampled two-way auto-merges — all under a single writer lock, judged against frozen snapshots.
 
@@ -360,7 +360,7 @@ Realizes spec **D8 (post-launch)**, **D9**, **D10 (spans)**, **D15**, and **D24*
 
 **W6 — Oracle-escape logger (D24).** (M; S3) SQLite store + `recordOracleEscape` / `listEscapes` / `clusterByCriterion`; wired from HITL reject, two-way sample reject, and metric rollback (W5). *done_when:* each source produces one idempotent record; cluster query returns sorted counts; escapes never mutate lineage state directly.
 
-**W7 — Escape cluster report CLI (D24).** (S; W6) `orchestrator escapes list | report` — surfaces clusters to drive criteria/test-author fixes. *done_when:* CLI prints grouped counts; empty store is not an error; report includes lineage ids per cluster.
+**W7 — Escape cluster report CLI (D24).** (S; W6) `snaffle escapes list | report` — surfaces clusters to drive criteria/test-author fixes. *done_when:* CLI prints grouped counts; empty store is not an error; report includes lineage ids per cluster.
 
 **W8 — Span store + gate wiring (D10).** (M; S4) Persist gate spans (lineage, batch, gateRunId, phase, stage, outcome, duration) to SQLite; wire `onTrace` + completion hooks from `gate-runner` and batch runner. *done_when:* PRE/POST spans for one lineage are queryable; a batch attributes spans to distinct lineages; red span names the failing stage.
 
@@ -432,13 +432,13 @@ Realizes deferred cut lines from Phases 2–6 and closes the OSS v1 operator loo
 
 **W2 — `LiveRolloutClient` (D8).** (M; S2) Vendor adapter implementing `RolloutClient`; `[rollout].adapter = "injected" | "live"`. *done_when:* post-merge path unchanged offline; live adapter passes S2 env-gated test.
 
-**W3 — Operator ramp CLI (D8).** (S; W2) `orchestrator rollout status | resume` — surfaces armed flags, last poll, breach/rollback, pending operator decision after auto-rollback. *done_when:* CLI reads rollout outcome + escape store; empty/disabled is not an error.
+**W3 — Operator ramp CLI (D8).** (S; W2) `snaffle rollout status | resume` — surfaces armed flags, last poll, breach/rollback, pending operator decision after auto-rollback. *done_when:* CLI reads rollout outcome + escape store; empty/disabled is not an error.
 
 **W4 — Durable budget ledger (D22; W11 carry).** (M; S4) Optional `[budget].persist = true` SQLite backing for `BudgetGovernorState`. *done_when:* restart survival test; disabled → in-memory unchanged.
 
 **W5 — Escape remediation emitter (D24).** (M; S3) `proposeEscapeRemediation(cluster, snapshot) → RemediationProposal`; persisted under `.orchestrator/`. *done_when:* cluster from W7 report produces proposal; tamper detected on reload.
 
-**W6 — Remediation CLI (D24).** (S; W5) `orchestrator escapes propose | apply-criteria` — surfaces proposals; apply-criteria updates frozen snapshot only through control-plane re-freeze path (never silent live-source edit). *done_when:* propose prints JSON; apply refuses stale snapshot.
+**W6 — Remediation CLI (D24).** (S; W5) `snaffle escapes propose | apply-criteria` — surfaces proposals; apply-criteria updates frozen snapshot only through control-plane re-freeze path (never silent live-source edit). *done_when:* propose prints JSON; apply refuses stale snapshot.
 
 **W7 — Optional gate stages (D8).** (M) `spec_traceability` and `smoke_budget` stages in `gate-runner.ts` when enabled in repo `gate.toml`. *done_when:* each stage has offline fixture red/green; disabled by default in skeleton fixture.
 

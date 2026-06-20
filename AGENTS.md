@@ -6,7 +6,7 @@ Snaffle is a deterministic agent delivery pipeline: an external control-plane **
 
 For any request to **change, add, fix, or refactor code in this repo**, do not edit
 repo files directly. Author a task file under `.orchestrator/tasks/<slug>.json`
-and run `bun run orchestrator -- run --task-file <path>`. Load the `snaffle`
+and run `bun run snaffle -- run --task-file <path>`. Load the `snaffle`
 skill (`.pi/skills/snaffle/SKILL.md`) for the task-file schema, door hints, and
 reporting steps. Snaffle drives its own subagents in an isolated worktree under
 the single-writer lock; you are the task author, not the editor.

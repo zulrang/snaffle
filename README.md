@@ -25,7 +25,7 @@ bun run check    # runs type checks, lint, guards, and all tests
 Run Snaffle from this folder:
 
 ```bash
-bun run orchestrator -- <command> [options]
+bun run snaffle -- <command> [options]
 ```
 
 ## Commands (CLI)
@@ -38,15 +38,15 @@ Snaffle prints **JSON** on success (structured text that other tools can read). 
 
 | Command | What it does |
 | --- | --- |
-| `orchestrator run` | Runs the full pipeline: plan the work, run agents, run checks, and finish or pause |
-| `orchestrator status` | Shows lock state, frozen plan, and recent history |
-| `orchestrator decisions list` | Lists changes waiting for a human yes/no |
-| `orchestrator decisions approve --lineage <id>` | Lets a paused run continue after you approve |
-| `orchestrator decisions reject --lineage <id>` | Stops and closes a paused run |
-| `orchestrator resume --lineage <id> [--no-push]` | Continues an approved run; `--no-push` runs checks without saving or uploading to Git |
-| `orchestrator escapes list \| report \| propose` | Handles cases where early checks passed but later steps failed |
-| `orchestrator escapes apply-criteria --criterion <id>` | Applies a fix plan through Snaffle’s control layer |
-| `orchestrator rollout status \| resume` | Checks safety flags after code has been merged |
+| `snaffle run` | Runs the full pipeline: plan the work, run agents, run checks, and finish or pause |
+| `snaffle status` | Shows lock state, frozen plan, and recent history |
+| `snaffle decisions list` | Lists changes waiting for a human yes/no |
+| `snaffle decisions approve --lineage <id>` | Lets a paused run continue after you approve |
+| `snaffle decisions reject --lineage <id>` | Stops and closes a paused run |
+| `snaffle resume --lineage <id> [--no-push]` | Continues an approved run; `--no-push` runs checks without saving or uploading to Git |
+| `snaffle escapes list \| report \| propose` | Handles cases where early checks passed but later steps failed |
+| `snaffle escapes apply-criteria --criterion <id>` | Applies a fix plan through Snaffle’s control layer |
+| `snaffle rollout status \| resume` | Checks safety flags after code has been merged |
 
 **Extra flags for `run`:**
 
@@ -59,11 +59,11 @@ Snaffle prints **JSON** on success (structured text that other tools can read). 
 **Examples:**
 
 ```bash
-bun run orchestrator -- run --repo .
-bun run orchestrator -- run --config-file docs/dogfood-gate.example.toml --task-file docs/dogfood-task.example.json
-bun run orchestrator -- decisions list
-bun run orchestrator -- decisions approve --lineage lineage-abc
-bun run orchestrator -- resume --lineage lineage-abc --no-push
+bun run snaffle -- run --repo .
+bun run snaffle -- run --config-file docs/dogfood-gate.example.toml --task-file docs/dogfood-task.example.json
+bun run snaffle -- decisions list
+bun run snaffle -- decisions approve --lineage lineage-abc
+bun run snaffle -- resume --lineage lineage-abc --no-push
 ```
 
 ## Configuration

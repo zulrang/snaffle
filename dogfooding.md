@@ -183,18 +183,18 @@ Every dogfooded task should declare:
 
 If any of these are missing, Snaffle should ask rather than infer a broad scope from prose.
 
-For the current dogfood run path, use `bun run orchestrator -- run --config-file docs/dogfood-gate.example.toml --task-file <path>` with a task file shaped like `docs/dogfood-task.example.json`. The temporary `scriptedWrites` field is intentionally explicit; remove it once task intake no longer needs a scripted expected write for deterministic warmups. With `[hitl].two_way_sample_rate = 1.0`, a green two-way run should park at `awaiting_human` and the CLI should exit `1`; confirm the durable item with `bun run orchestrator -- decisions list`. Approval is authorization only: after `bun run orchestrator -- decisions approve --lineage <id>`, run `bun run orchestrator -- resume --lineage <id> --no-push` for the first trust window. Drop `--no-push` only when you intentionally want the locked continuation to commit and push, and add `--publish-pr` only when you intentionally want the continuation to call `gh pr create`. A PR publishing failure should write `.orchestrator/pr-failures/<lineage>.json` rather than pretending a PR exists.
+For the current dogfood run path, use `bun run snaffle -- run --config-file docs/dogfood-gate.example.toml --task-file <path>` with a task file shaped like `docs/dogfood-task.example.json`. The temporary `scriptedWrites` field is intentionally explicit; remove it once task intake no longer needs a scripted expected write for deterministic warmups. With `[hitl].two_way_sample_rate = 1.0`, a green two-way run should park at `awaiting_human` and the CLI should exit `1`; confirm the durable item with `bun run snaffle -- decisions list`. Approval is authorization only: after `bun run snaffle -- decisions approve --lineage <id>`, run `bun run snaffle -- resume --lineage <id> --no-push` for the first trust window. Drop `--no-push` only when you intentionally want the locked continuation to commit and push, and add `--publish-pr` only when you intentionally want the continuation to call `gh pr create`. A PR publishing failure should write `.orchestrator/pr-failures/<lineage>.json` rather than pretending a PR exists.
 
 ## Operations Loop
 
 During the dogfood window, check the control plane after every run:
 
 ```bash
-bun run orchestrator -- status --repo . --limit 20
-bun run orchestrator -- decisions list --repo .
-bun run orchestrator -- escapes list --repo .
-bun run orchestrator -- escapes report --repo .
-bun run orchestrator -- rollout status --repo .
+bun run snaffle -- status --repo . --limit 20
+bun run snaffle -- decisions list --repo .
+bun run snaffle -- escapes list --repo .
+bun run snaffle -- escapes report --repo .
+bun run snaffle -- rollout status --repo .
 ```
 
 Recovery expectations:

@@ -21,13 +21,13 @@ const VARIANTS = ["merge_success", "scope_blocked", "post_gate_rejected"] as con
 
 const usage = (): void => {
   console.error(`usage:
-  orchestrator run [--repo <path>] [--config-file <path>] [--task-file <path>] [--legacy-skeleton] [--variant ${VARIANTS.join("|")}] [--owner <id>]
-  orchestrator status [--repo <path>] [--limit <n>]
-  orchestrator decisions list [--repo <path>]
-  orchestrator decisions approve|reject --lineage <id> [--repo <path>]
-  orchestrator resume --lineage <id> [--repo <path>] [--no-push] [--publish-pr]
-  orchestrator escapes list|report|propose|apply-criteria [--criterion <id>] [--repo <path>]
-  orchestrator rollout status|resume [--repo <path>]`);
+  snaffle run [--repo <path>] [--config-file <path>] [--task-file <path>] [--legacy-skeleton] [--variant ${VARIANTS.join("|")}] [--owner <id>]
+  snaffle status [--repo <path>] [--limit <n>]
+  snaffle decisions list [--repo <path>]
+  snaffle decisions approve|reject --lineage <id> [--repo <path>]
+  snaffle resume --lineage <id> [--repo <path>] [--no-push] [--publish-pr]
+  snaffle escapes list|report|propose|apply-criteria [--criterion <id>] [--repo <path>]
+  snaffle rollout status|resume [--repo <path>]`);
 };
 
 const isEscapesCommand = (value: string): value is EscapesCommand =>

@@ -1,6 +1,6 @@
 ---
 name: snaffle
-description: Route code changes through Snaffle's deterministic spine instead of editing files directly. Authors a task file and invokes `orchestrator run`, then reports lineage state, decisions, and escapes. Use when the user asks to change, add, fix, or refactor code in this repo, or says "snaffle", "route through snaffle", or "run it through the spine". Do NOT use for reading/explaining code, answering questions, or running `bun run check` manually.
+description: Route code changes through Snaffle's deterministic spine instead of editing files directly. Authors a task file and invokes `snaffle run`, then reports lineage state, decisions, and escapes. Use when the user asks to change, add, fix, or refactor code in this repo, or says "snaffle", "route through snaffle", or "run it through the spine". Do NOT use for reading/explaining code, answering questions, or running `bun run check` manually.
 ---
 
 # Snaffle routing skill
@@ -11,7 +11,7 @@ isolated worktree under a single-writer lock, runs the deterministic gate, and
 parks or merges. Your job is to hand it a well-formed task and report back.
 
 Never edit repo files directly to satisfy a code-change request. Author a task
-file and let `orchestrator run` do the work.
+file and let `snaffle run` do the work.
 
 ## When to use
 
@@ -68,7 +68,7 @@ the human queue.
 ## Running
 
 ```bash
-bun run orchestrator -- run --task-file .orchestrator/tasks/<slug>.json
+bun run snaffle -- run --task-file .orchestrator/tasks/<slug>.json
 ```
 
 Optional `--config-file <path>` to override `.orchestrator/gate.toml`. Optional
@@ -85,16 +85,16 @@ After the run, read the JSON on stdout and report to the user, concisely:
 - `lineageId` — the run id, for follow-up commands.
 - If `awaiting_human`: tell the user the next steps (do **not** run them
   yourself unless asked):
-  - `bun run orchestrator -- decisions approve --lineage <id>`
-  - `bun run orchestrator -- resume --lineage <id> --no-push` (trust window)
+  - `bun run snaffle -- decisions approve --lineage <id>`
+  - `bun run snaffle -- resume --lineage <id> --no-push` (trust window)
   - drop `--no-push` when they want it to ship.
 
 Then inspect if asked:
 
 ```bash
-bun run orchestrator -- status --repo . --limit 20
-bun run orchestrator -- decisions list --repo .
-bun run orchestrator -- escapes list --repo .
+bun run snaffle -- status --repo . --limit 20
+bun run snaffle -- decisions list --repo .
+bun run snaffle -- escapes list --repo .
 ```
 
 ## Self-editing hazard (Snaffle editing Snaffle)
@@ -116,7 +116,7 @@ their own task, separate from feature work.
 
 ## Do not
 
-- Do not run `orchestrator run` without a task file you authored.
+- Do not run `snaffle run` without a task file you authored.
 - Do not invent `scope` broader than the user asked.
 - Do not run `decisions approve` / `resume` unprompted — those are human
   authorization steps. Offer them.

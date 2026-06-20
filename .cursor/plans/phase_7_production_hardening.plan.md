@@ -21,7 +21,7 @@ todos:
     content: "W2: LiveRolloutClient + rollout.adapter config"
     status: completed
   - id: w3-ramp-cli
-    content: "W3: orchestrator rollout status | resume CLI"
+    content: "W3: snaffle rollout status | resume CLI"
     status: completed
   - id: w4-budget-persist
     content: "W4: Optional budget persistence (W11 carry)"

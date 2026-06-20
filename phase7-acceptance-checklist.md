@@ -15,7 +15,7 @@ Each box names the test that proves it. `bun run check` is green (342 tests, 1 e
 
 - [x] **W1** `GhPrAdapter` — injected exec boundary — `src/lib/gh-pr-adapter.test.ts`
 - [x] **W2** `LiveRolloutClient` — webhook `RolloutClient` + config adapter — `src/lib/live-rollout-client.test.ts`, `src/lib/orchestrator-config.test.ts`
-- [x] **W3** Operator ramp CLI — `orchestrator rollout status|resume` — `src/spine/rollout-cli.test.ts`
+- [x] **W3** Operator ramp CLI — `snaffle rollout status|resume` — `src/spine/rollout-cli.test.ts`
 - [x] **W4** Durable budget ledger — optional `[budget].persist` — `src/lib/budget-ledger.test.ts`
 - [x] **W5** Escape remediation emitter — template proposals — `src/lib/escape-remediation.test.ts`
 - [x] **W6** Remediation CLI — `escapes propose|apply-criteria` — `src/spine/escapes-cli.test.ts`

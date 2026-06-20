@@ -25,10 +25,10 @@
     "guard:bun-native": "node scripts/guard-no-bun-native.mjs",
     "guard:name-branching": "node scripts/guard-name-branching.mjs",
     "test:node-smoke": "node --test scripts/node-smoke-check.mjs",
-    "orchestrator": "bun src/cli.ts"
+    "snaffle": "bun src/cli.ts"
   },
   "bin": {
-    "orchestrator": "./src/cli.ts"
+    "snaffle": "./src/cli.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.3.4",
