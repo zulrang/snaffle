@@ -34,7 +34,7 @@ All commands accept `--repo <path>` (defaults to the current directory). Output 
 | `orchestrator decisions list` | Pending human decisions (one-way doors, sampled two-way merges) |
 | `orchestrator decisions approve --lineage <id>` | Authorize continuation for a parked lineage |
 | `orchestrator decisions reject --lineage <id>` | Reject and close a parked lineage |
-| `orchestrator resume --lineage <id>` | Resume an approved lineage: reapply, rerun POST gate, then merge |
+| `orchestrator resume --lineage <id> [--no-push]` | Resume an approved lineage; `--no-push` validates without commit/push |
 | `orchestrator escapes list \| report \| propose` | Oracle escapes (gate greens that failed downstream) |
 | `orchestrator escapes apply-criteria --criterion <id>` | Apply a remediation proposal via control-plane re-freeze |
 | `orchestrator rollout status \| resume` | Post-merge flag guardrail state after merge |
@@ -54,7 +54,7 @@ bun run orchestrator -- run --repo .
 bun run orchestrator -- run --config-file docs/dogfood-gate.example.toml --task-file docs/dogfood-task.example.json
 bun run orchestrator -- decisions list
 bun run orchestrator -- decisions approve --lineage lineage-abc
-bun run orchestrator -- resume --lineage lineage-abc
+bun run orchestrator -- resume --lineage lineage-abc --no-push
 ```
 
 ## Configuration

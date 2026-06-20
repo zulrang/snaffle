@@ -25,7 +25,7 @@ const usage = (): void => {
   orchestrator status [--repo <path>] [--limit <n>]
   orchestrator decisions list [--repo <path>]
   orchestrator decisions approve|reject --lineage <id> [--repo <path>]
-  orchestrator resume --lineage <id> [--repo <path>]
+  orchestrator resume --lineage <id> [--repo <path>] [--no-push]
   orchestrator escapes list|report|propose|apply-criteria [--criterion <id>] [--repo <path>]
   orchestrator rollout status|resume [--repo <path>]`);
 };
@@ -48,6 +48,7 @@ export interface ParsedCli {
   readonly provenanceLimit: number;
   readonly taskFile?: string;
   readonly configFile?: string;
+  readonly noPush: boolean;
   readonly decisionsCommand?: DecisionsCommand;
   readonly escapesCommand?: EscapesCommand;
   readonly rolloutCommand?: RolloutCommand;
@@ -78,6 +79,7 @@ export const parseCliArgs = (argv: readonly string[]): ParsedCli | undefined => 
   let provenanceLimit = 10;
   let taskFile: string | undefined;
   let configFile: string | undefined;
+  let noPush = false;
   let decisionsCommand: DecisionsCommand | undefined;
   let lineageId: string | undefined;
 
@@ -125,6 +127,8 @@ export const parseCliArgs = (argv: readonly string[]): ParsedCli | undefined => 
     } else if (flag === "--config-file" && next !== undefined && command === "run") {
       configFile = next;
       i += 1;
+    } else if (flag === "--no-push" && command === "resume") {
+      noPush = true;
     } else if (flag === "--limit" && next !== undefined) {
       provenanceLimit = Number(next);
       if (!Number.isInteger(provenanceLimit) || provenanceLimit <= 0) return undefined;
@@ -167,6 +171,7 @@ export const parseCliArgs = (argv: readonly string[]): ParsedCli | undefined => 
     provenanceLimit,
     ...(taskFile === undefined ? {} : { taskFile }),
     ...(configFile === undefined ? {} : { configFile }),
+    noPush,
     ...(decisionsCommand === undefined ? {} : { decisionsCommand }),
     ...(escapesCommand === undefined ? {} : { escapesCommand }),
     ...(rolloutCommand === undefined ? {} : { rolloutCommand }),
@@ -224,7 +229,9 @@ const main = async (): Promise<number> => {
   }
 
   if (parsed.command === "resume") {
-    const resumed = await resumeApprovedLineage(parsed.repoRoot, parsed.lineageId as string);
+    const resumed = await resumeApprovedLineage(parsed.repoRoot, parsed.lineageId as string, {
+      noPush: parsed.noPush,
+    });
     if (!resumed.ok) {
       console.error(JSON.stringify({ ok: false, error: resumed.error }));
       return 2;

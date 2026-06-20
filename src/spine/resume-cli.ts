@@ -25,7 +25,11 @@ export interface VcsContinuation {
 
 export type VcsContinuationOutcome =
   | { readonly kind: "committed_and_pushed" }
-  | { readonly kind: "already_applied" };
+  | { readonly kind: "already_applied" }
+  | {
+      readonly kind: "would_commit_and_push";
+      readonly paths: readonly string[];
+    };
 
 export type VcsContinuationError = { readonly kind: "vcs_error"; readonly detail: string };
 
@@ -41,6 +45,12 @@ export type ResumeLineageOutcome =
   | {
       readonly kind: "merged";
       readonly transition: StateTransition;
+      readonly postGate: GateReport;
+      readonly artifactHash: string;
+      readonly vcs: VcsContinuationOutcome;
+    }
+  | {
+      readonly kind: "validated_no_push";
       readonly postGate: GateReport;
       readonly artifactHash: string;
       readonly vcs: VcsContinuationOutcome;
@@ -84,10 +94,18 @@ const defaultVcsContinuation: VcsContinuation = {
   },
 };
 
+const noPushVcsContinuation: VcsContinuation = {
+  async commitAndPush(input) {
+    const paths = input.writes.map((write) => write.path);
+    if (paths.length === 0) return ok({ kind: "already_applied" });
+    return ok({ kind: "would_commit_and_push", paths });
+  },
+};
+
 export const resumeApprovedLineage = async (
   repoRoot: string,
   rawLineageId: string,
-  options: { readonly vcs?: VcsContinuation } = {},
+  options: { readonly vcs?: VcsContinuation; readonly noPush?: boolean } = {},
 ): Promise<Result<ResumeLineageOutcome, ResumeLineageError>> => {
   const lineageId = LineageId(rawLineageId);
   if (!lineageId.ok) return err({ kind: "invalid_lineage", detail: rawLineageId });
@@ -153,7 +171,9 @@ export const resumeApprovedLineage = async (
         return ok({ kind: "reparked", reason: "post_gate_red", item: reparked.value });
       }
 
-      const vcs = await (options.vcs ?? defaultVcsContinuation).commitAndPush({
+      const vcsDriver =
+        options.vcs ?? (options.noPush === true ? noPushVcsContinuation : defaultVcsContinuation);
+      const vcs = await vcsDriver.commitAndPush({
         repoRoot,
         lineageId: lineageId.value,
         writes: artifact.value.writes,
@@ -164,6 +184,15 @@ export const resumeApprovedLineage = async (
           return err({ kind: "queue_error", detail: JSON.stringify(reparked.error) });
         }
         return ok({ kind: "reparked", reason: "merge_failed", item: reparked.value });
+      }
+
+      if (options.noPush === true) {
+        return ok({
+          kind: "validated_no_push",
+          postGate,
+          artifactHash: String(artifact.value.artifactHash),
+          vcs: vcs.value,
+        });
       }
 
       const transition: StateTransition = {

@@ -86,6 +86,65 @@ describe("resume approved lineage", () => {
     expect(readFileSync(join(workspace, "approved.txt"), "utf8")).toBe("approved\n");
   });
 
+  test("no-push resume validates without deriving merged", async () => {
+    workspace = mkdtempSync(join(tmpdir(), "snaffle-resume-no-push-"));
+    const ts = must(parseTimestamp(1_700_000_000_000));
+    const lineageId = must(LineageId("lineage-no-push"));
+    const decisionId = must(DecisionId("dec-no-push"));
+    const artifact = must(
+      writeParkedChangeArtifact(workspace, {
+        lineageId,
+        plan: { regime: "minimal", phases: ["implement", "validate"], terminal: "auto_merge" },
+        config: defaultOrchestratorConfig(),
+        gateConfig: {
+          ...defaultPhase1GateConfig(),
+          stages: [
+            {
+              kind: "full_tests",
+              command: ["sh", "-c", "test -f preview.txt"],
+            },
+          ],
+        },
+        scope: ["preview.txt"],
+        writes: [{ path: "preview.txt", content: "preview\n" }],
+        createdAt: ts,
+      }),
+    );
+
+    const store = openDecisionQueueStore(join(workspace, DECISION_DB_DIR, DECISION_DB_FILE));
+    must(
+      store.enqueue({
+        decisionId,
+        lineageId,
+        kind: "two_way_sample",
+        door: { direction: "two_way" },
+        enqueuedAt: ts,
+        parkedChangeHash: String(artifact.artifactHash),
+      }),
+    );
+    must(
+      store.recordDecision({
+        decisionId,
+        decision: "approve",
+        currentState: { status: "awaiting_human" },
+        decidedAt: ts,
+      }),
+    );
+    store.close();
+
+    const resumed = must(
+      await resumeApprovedLineage(workspace, String(lineageId), { noPush: true }),
+    );
+    expect(resumed.kind).toBe("validated_no_push");
+    if (resumed.kind !== "validated_no_push") throw new Error("expected no-push preview");
+    expect(resumed.artifactHash).toBe(String(artifact.artifactHash));
+    expect(resumed.vcs).toEqual({
+      kind: "would_commit_and_push",
+      paths: ["preview.txt"],
+    });
+    expect(readFileSync(join(workspace, "preview.txt"), "utf8")).toBe("preview\n");
+  });
+
   test("missing artifact re-parks instead of honoring a stale approval", async () => {
     workspace = mkdtempSync(join(tmpdir(), "snaffle-resume-missing-"));
     const ts = must(parseTimestamp(1_700_000_000_000));

@@ -183,7 +183,7 @@ Every dogfooded task should declare:
 
 If any of these are missing, Snaffle should ask rather than infer a broad scope from prose.
 
-For the current dogfood run path, use `bun run orchestrator -- run --config-file docs/dogfood-gate.example.toml --task-file <path>` with a task file shaped like `docs/dogfood-task.example.json`. The temporary `scriptedWrites` field is intentionally explicit; remove it once task intake no longer needs a scripted expected write for deterministic warmups. With `[hitl].two_way_sample_rate = 1.0`, a green two-way run should park at `awaiting_human` and the CLI should exit `1`; confirm the durable item with `bun run orchestrator -- decisions list`. Approval is authorization only: after `bun run orchestrator -- decisions approve --lineage <id>`, run `bun run orchestrator -- resume --lineage <id>` to perform the locked continuation and derive the terminal merge state.
+For the current dogfood run path, use `bun run orchestrator -- run --config-file docs/dogfood-gate.example.toml --task-file <path>` with a task file shaped like `docs/dogfood-task.example.json`. The temporary `scriptedWrites` field is intentionally explicit; remove it once task intake no longer needs a scripted expected write for deterministic warmups. With `[hitl].two_way_sample_rate = 1.0`, a green two-way run should park at `awaiting_human` and the CLI should exit `1`; confirm the durable item with `bun run orchestrator -- decisions list`. Approval is authorization only: after `bun run orchestrator -- decisions approve --lineage <id>`, run `bun run orchestrator -- resume --lineage <id> --no-push` for the first trust window. Drop `--no-push` only when you intentionally want the locked continuation to commit and push.
 
 ## Operations Loop
 

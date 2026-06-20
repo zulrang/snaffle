@@ -31,6 +31,7 @@ describe("phase1 CLI — argv parsing", () => {
       variant: "merge_success",
       legacySkeleton: false,
       provenanceLimit: 10,
+      noPush: false,
     });
     expect(parseCliArgs(["status", "--repo", "/tmp/ws", "--limit", "5"])).toEqual({
       command: "status",
@@ -38,6 +39,7 @@ describe("phase1 CLI — argv parsing", () => {
       variant: "merge_success",
       legacySkeleton: false,
       provenanceLimit: 5,
+      noPush: false,
     });
     expect(parseCliArgs(["run", "--variant", "scope_blocked", "--owner", "cli-a"])).toEqual({
       command: "run",
@@ -46,6 +48,7 @@ describe("phase1 CLI — argv parsing", () => {
       legacySkeleton: false,
       ownerId: "cli-a",
       provenanceLimit: 10,
+      noPush: false,
     });
     expect(
       parseCliArgs([
@@ -61,6 +64,7 @@ describe("phase1 CLI — argv parsing", () => {
       variant: "merge_success",
       legacySkeleton: false,
       provenanceLimit: 10,
+      noPush: false,
       configFile: "docs/dogfood-gate.example.toml",
       taskFile: "docs/task.json",
     });
@@ -70,14 +74,18 @@ describe("phase1 CLI — argv parsing", () => {
       variant: "merge_success",
       legacySkeleton: false,
       provenanceLimit: 10,
+      noPush: false,
       decisionsCommand: "list",
     });
-    expect(parseCliArgs(["resume", "--lineage", "lineage-1", "--repo", "/tmp/ws"])).toEqual({
+    expect(
+      parseCliArgs(["resume", "--lineage", "lineage-1", "--repo", "/tmp/ws", "--no-push"]),
+    ).toEqual({
       command: "resume",
       repoRoot: "/tmp/ws",
       variant: "merge_success",
       legacySkeleton: false,
       provenanceLimit: 10,
+      noPush: true,
       lineageId: "lineage-1",
     });
     expect(parseCliArgs(["nope"])).toBeUndefined();
