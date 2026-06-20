@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { InvocationId } from "../domain/ids";
 import { makeWriteScope, parseRepoPath } from "../domain/scope";
-import { assembleSystemPrompt, roleDoctrine } from "../lib/agent-context";
+import { assembleSystemPrompt, roleDoctrine, SPINE_SUBAGENT_PREAMBLE } from "../lib/agent-context";
 import { loadSkill } from "../lib/skills";
 import { validateAgentResult } from "../lib/validate-agent-result";
 import { invokeStubAgentSequence, stubResultToAgentResult } from "../pi/invoke-stub-agent";
@@ -25,7 +25,7 @@ const repoRoot = join(import.meta.dir, "../..");
 describe("P4/S1 — composed implementer over a real skill (faux SDK)", () => {
   test("the implementation skill loads and references lib/ rather than reimplementing it (D12)", () => {
     const skill = must(loadSkill("implementation", repoRoot));
-    expect(skill.version).toBe("1");
+    expect(skill.version).toBe("2");
     expect(skill.libReferences).toContain("src/lib/gate-runner.ts");
     expect(skill.libReferences).toContain("src/lib/scope-guard.ts");
     // loadSkill returns ok only when the body carries no TS export (the D12 guard).
@@ -35,7 +35,8 @@ describe("P4/S1 — composed implementer over a real skill (faux SDK)", () => {
   test("the assembler composes role + skill doctrine into the system prompt", () => {
     const skill = must(loadSkill("implementation", repoRoot));
     const prompt = assembleSystemPrompt("implementer", [skill]);
-    expect(prompt.startsWith(roleDoctrine("implementer"))).toBe(true);
+    expect(prompt.startsWith(SPINE_SUBAGENT_PREAMBLE)).toBe(true);
+    expect(prompt).toContain(roleDoctrine("implementer"));
     expect(prompt).toContain(skill.body);
   });
 

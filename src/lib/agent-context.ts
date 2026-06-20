@@ -11,6 +11,15 @@ import type { Skill } from "./skills";
  * byte-stable across tasks for a given agent type.
  */
 
+/** Spine subagents are not external task authors — they must not use Snaffle routing skills or edit control-plane code. */
+export const SPINE_SUBAGENT_PREAMBLE = [
+  "You are invoked by the Snaffle control-plane spine, not as an external task author.",
+  "Your only mutation tool is scoped_write within the capability grant the spine issued for this invocation.",
+  "Do not route work through Snaffle, author task files, or follow Snaffle routing skills.",
+  "Do not edit gate, spine, classifier, or other control-plane paths unless they are explicitly in your grant.",
+  "The spine runs deterministic acceptance checks after you finish; you do not run the gate yourself.",
+].join("\n");
+
 /** Stable role doctrine per agent kind (the invariant front of the prompt prefix). */
 const ROLE_DOCTRINE: Readonly<Record<AgentKind, string>> = {
   spec: "You are the spec author. Produce a precise, testable acceptance target; do not implement.",
@@ -31,8 +40,13 @@ export const roleDoctrine = (agentKind: AgentKind): string => ROLE_DOCTRINE[agen
  * Assemble the stable system-prompt prefix: role doctrine followed by each
  * composed skill body, in order. Deterministic and volatile-data-free (D26).
  */
-export const assembleSystemPrompt = (agentKind: AgentKind, skills: readonly Skill[]): string =>
-  [ROLE_DOCTRINE[agentKind], ...skills.map((skill) => skill.body)].join("\n\n");
+export const assembleSystemPrompt = (agentKind: AgentKind, skills: readonly Skill[]): string => {
+  const parts =
+    agentKind === "stub"
+      ? [ROLE_DOCTRINE[agentKind], ...skills.map((skill) => skill.body)]
+      : [SPINE_SUBAGENT_PREAMBLE, ROLE_DOCTRINE[agentKind], ...skills.map((skill) => skill.body)];
+  return parts.join("\n\n");
+};
 
 /**
  * Stable prefix + variable tail, with the cache breakpoint at the boundary (D26).

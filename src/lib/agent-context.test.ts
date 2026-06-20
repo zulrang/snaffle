@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { assembleAgentContext, assembleSystemPrompt, roleDoctrine } from "./agent-context";
+import {
+  assembleAgentContext,
+  assembleSystemPrompt,
+  roleDoctrine,
+  SPINE_SUBAGENT_PREAMBLE,
+} from "./agent-context";
 import type { Skill } from "./skills";
 
 /**
@@ -23,7 +28,8 @@ describe("P4/S3 — stable agent prefix (D26)", () => {
     const a = assembleSystemPrompt("implementer", [skill]);
     const b = assembleSystemPrompt("implementer", [skill]);
     expect(a).toBe(b);
-    expect(a.startsWith(roleDoctrine("implementer"))).toBe(true);
+    expect(a.startsWith(SPINE_SUBAGENT_PREAMBLE)).toBe(true);
+    expect(a).toContain(roleDoctrine("implementer"));
   });
 
   test("volatile per-invocation data never appears in the prefix (out-of-band, D6/D26)", () => {
@@ -53,5 +59,14 @@ describe("P4/S3 — stable agent prefix (D26)", () => {
     expect(a.tail).toBe("task one");
     expect(b.tail).toBe("task two");
     expect(a.prefix).toContain(skill.body);
+  });
+
+  test("spine subagents carry an isolation preamble; stub does not", () => {
+    const implementer = assembleSystemPrompt("implementer", [skill]);
+    expect(implementer).toContain("not as an external task author");
+    expect(implementer).toContain("Do not route work through Snaffle");
+    expect(assembleSystemPrompt("stub", [skill])).not.toContain(
+      "Do not route work through Snaffle",
+    );
   });
 });

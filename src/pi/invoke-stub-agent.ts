@@ -22,6 +22,7 @@ import { err, ok, type Result } from "../domain/shared";
 import type { OracleFreezeRecord } from "../lib/oracle-freeze";
 import type { ModelRef } from "../lib/orchestrator-config";
 import { checkMutationAllowed, createBeforeToolCallGuard } from "../lib/scope-guard";
+import { assertIsolatedSystemPrompt, type ExplicitSkillRef } from "./isolated-invocation";
 import { createCachedStreamFn, type PromptCacheHint } from "./prompt-cache";
 
 /** Pinned stub model used by S1 — deterministic, no network, no interactive session. */
@@ -45,6 +46,8 @@ export interface StubInvocationMetadata {
   };
   readonly usage?: Usage;
   readonly promptCache?: PromptCacheHint;
+  /** Skills explicitly composed by the spine for this invocation (never from Pi env discovery). */
+  readonly explicitSkills?: readonly ExplicitSkillRef[];
 }
 
 export interface CapturedWrite {
@@ -111,6 +114,8 @@ export interface StubInvocationOptions {
    * cannot edit its grader.
    */
   readonly oracleFreeze?: OracleFreezeRecord;
+  /** Skill set composed by the spine; recorded in metadata and asserted isolated. */
+  readonly explicitSkills?: readonly ExplicitSkillRef[];
   /**
    * Reuse an existing faux registration so prompt-cache state survives across
    * invocations (tests and spine session reuse). When omitted, a registration is
@@ -330,11 +335,13 @@ const runStubAgent = async (
     const streamFn = options.promptCache ? createCachedStreamFn(options.promptCache) : streamSimple;
     const invocationTimeoutMs =
       options.invocationTimeoutMs ?? resolveInvocationTimeoutMs(invocationMode);
+    const systemPrompt =
+      options.systemPrompt ?? "You are a deterministic stub agent for the orchestrator spine.";
+    assertIsolatedSystemPrompt(systemPrompt);
 
     const agent = new Agent({
       initialState: {
-        systemPrompt:
-          options.systemPrompt ?? "You are a deterministic stub agent for the orchestrator spine.",
+        systemPrompt,
         model,
         thinkingLevel: "off",
         tools: [
@@ -426,6 +433,7 @@ const runStubAgent = async (
         },
         ...(usage ? { usage } : {}),
         ...(options.promptCache ? { promptCache: options.promptCache } : {}),
+        ...(options.explicitSkills === undefined ? {} : { explicitSkills: options.explicitSkills }),
       },
       invocationId: task.invocationId,
       summary,

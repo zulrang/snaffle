@@ -5,7 +5,7 @@ import { makeWriteScope, parseRepoPath } from "../domain/scope";
 import { AGENT_DEFINITIONS } from "../lib/agents";
 import { defaultOrchestratorConfig } from "../lib/orchestrator-config";
 import { lineageCacheHint } from "../pi/prompt-cache";
-import { invokeAgent } from "./invoke-agent";
+import { invokeAgent, resolveInvocationLive } from "./invoke-agent";
 
 const must = <T>(result: { ok: boolean; value?: T; error?: unknown }): T => {
   if (!result.ok) throw new Error(JSON.stringify(result.error));
@@ -48,6 +48,9 @@ describe("W2 — agent definitions (D3/D6/D18)", () => {
 
     // Composed skill doctrine is in the prefix (D2/D26).
     expect(outcome.systemPrompt).toContain("Implementation skill");
+    expect(outcome.metadata.explicitSkills).toEqual([{ name: "implementation", version: "2" }]);
+    expect(outcome.systemPrompt).not.toContain("<available_skills>");
+    expect(outcome.systemPrompt).not.toContain(".pi/skills");
     // Tier resolved provider-neutrally (D18) — mid tier from the swapped config.
     expect(outcome.modelRef.provider).toBe("anthropic");
     expect(outcome.modelRef.model).toBe("claude-mid");
@@ -93,5 +96,19 @@ describe("W2 — agent definitions (D3/D6/D18)", () => {
     );
 
     expect(outcome.metadata.promptCache?.sessionId).toBe("lineage-w3");
+  });
+
+  test("resolveInvocationLive honors --live and env", () => {
+    const prior = process.env["SNAFFLE_LIVE_MODEL"];
+    try {
+      delete process.env["SNAFFLE_LIVE_MODEL"];
+      expect(resolveInvocationLive(false)).toBe(false);
+      expect(resolveInvocationLive(true)).toBe(true);
+      process.env["SNAFFLE_LIVE_MODEL"] = "1";
+      expect(resolveInvocationLive(false)).toBe(true);
+    } finally {
+      if (prior === undefined) delete process.env["SNAFFLE_LIVE_MODEL"];
+      else process.env["SNAFFLE_LIVE_MODEL"] = prior;
+    }
   });
 });

@@ -28,12 +28,42 @@ describe("dogfood task contract", () => {
     ]);
   });
 
-  test("fails closed on missing scripted writes", () => {
+  test("allows omitted scriptedWrites for live runs", () => {
+    const task = must(
+      parseDogfoodTask(
+        JSON.stringify({
+          goal: "Add a helper from the goal alone.",
+          scope: ["src/lib"],
+          acceptanceCriteria: ["bun run check stays green"],
+        }),
+      ),
+    );
+
+    expect(task.scriptedWrites).toEqual([]);
+  });
+
+  test("allows empty scriptedWrites array", () => {
+    const task = must(
+      parseDogfoodTask(
+        JSON.stringify({
+          goal: "Live-only task.",
+          scope: ["docs"],
+          acceptanceCriteria: ["check"],
+          scriptedWrites: [],
+        }),
+      ),
+    );
+
+    expect(task.scriptedWrites).toEqual([]);
+  });
+
+  test("rejects non-array scriptedWrites", () => {
     const result = parseDogfoodTask(
       JSON.stringify({
-        goal: "No write shape.",
+        goal: "Bad shape.",
         scope: ["src/lib"],
         acceptanceCriteria: ["check"],
+        scriptedWrites: "nope",
       }),
     );
 
@@ -81,5 +111,17 @@ describe("dogfood task contract", () => {
     expect(prompt).toContain("- check stays green");
     expect(prompt).toContain("path: docs/x.md");
     expect(prompt).toContain("# X");
+  });
+
+  test("prompt without scriptedWrites asks the model to scoped_write", () => {
+    const prompt = dogfoodTaskPrompt({
+      goal: "Add a live helper.",
+      scope: ["src/lib"],
+      acceptanceCriteria: ["check stays green"],
+      scriptedWrites: [],
+    });
+
+    expect(prompt).toContain("scoped_write");
+    expect(prompt).not.toContain("path: ");
   });
 });

@@ -21,7 +21,7 @@ const VARIANTS = ["merge_success", "scope_blocked", "post_gate_rejected"] as con
 
 const usage = (): void => {
   console.error(`usage:
-  snaffle run [--repo <path>] [--config-file <path>] [--task-file <path>] [--legacy-skeleton] [--variant ${VARIANTS.join("|")}] [--owner <id>]
+  snaffle run [--repo <path>] [--config-file <path>] [--task-file <path>] [--live] [--legacy-skeleton] [--variant ${VARIANTS.join("|")}] [--owner <id>]
   snaffle status [--repo <path>] [--limit <n>]
   snaffle decisions list [--repo <path>]
   snaffle decisions approve|reject --lineage <id> [--repo <path>]
@@ -55,6 +55,7 @@ export interface ParsedCli {
   readonly rolloutCommand?: RolloutCommand;
   readonly lineageId?: string;
   readonly criterionId?: string;
+  readonly live: boolean;
 }
 
 const isRolloutCommand = (value: string): value is RolloutCommand =>
@@ -88,6 +89,7 @@ export const parseCliArgs = (argv: readonly string[]): ParsedCli | undefined => 
   let escapesCommand: EscapesCommand | undefined;
   let rolloutCommand: RolloutCommand | undefined;
   let criterionId: string | undefined;
+  let live = false;
 
   if (command === "decisions") {
     const sub = argv[1];
@@ -120,6 +122,8 @@ export const parseCliArgs = (argv: readonly string[]): ParsedCli | undefined => 
       i += 1;
     } else if (flag === "--legacy-skeleton") {
       legacySkeleton = true;
+    } else if (flag === "--live" && command === "run") {
+      live = true;
     } else if (flag === "--owner" && next !== undefined) {
       ownerId = next;
       i += 1;
@@ -182,6 +186,7 @@ export const parseCliArgs = (argv: readonly string[]): ParsedCli | undefined => 
     ...(rolloutCommand === undefined ? {} : { rolloutCommand }),
     ...(lineageId === undefined ? {} : { lineageId }),
     ...(criterionId === undefined ? {} : { criterionId }),
+    live,
   };
 };
 
@@ -327,6 +332,7 @@ const main = async (): Promise<number> => {
     repoRoot: parsed.repoRoot,
     ...(parsed.taskFile === undefined ? {} : { taskFile: parsed.taskFile }),
     ...(parsed.configFile === undefined ? {} : { configFile: parsed.configFile }),
+    ...(parsed.live ? { live: true } : {}),
   });
   if (!regime.ok) {
     console.error(JSON.stringify({ ok: false, error: regime.error }));

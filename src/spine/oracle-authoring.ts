@@ -37,6 +37,7 @@ export interface OracleAuthoringInput {
   readonly frozenAt: number;
   readonly prompt?: string;
   readonly cacheHint?: PromptCacheHint;
+  readonly live?: boolean;
 }
 
 export interface OracleAuthoringOutcome {
@@ -75,6 +76,7 @@ export const runOracleAuthoringPhase = async (
     repoRoot: input.repoRoot,
     workspaceRoot: input.worktreeRoot,
     ...(input.cacheHint === undefined ? {} : { cacheHint: input.cacheHint }),
+    ...(input.live === true ? { live: true } : {}),
   });
   if (!authored.ok) return err(authored.error);
   if (authored.value.agentResult.outcome !== "succeeded") {

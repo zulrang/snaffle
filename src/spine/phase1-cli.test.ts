@@ -33,6 +33,7 @@ describe("phase1 CLI — argv parsing", () => {
       provenanceLimit: 10,
       noPush: false,
       publishPr: false,
+      live: false,
     });
     expect(parseCliArgs(["status", "--repo", "/tmp/ws", "--limit", "5"])).toEqual({
       command: "status",
@@ -42,6 +43,7 @@ describe("phase1 CLI — argv parsing", () => {
       provenanceLimit: 5,
       noPush: false,
       publishPr: false,
+      live: false,
     });
     expect(parseCliArgs(["run", "--variant", "scope_blocked", "--owner", "cli-a"])).toEqual({
       command: "run",
@@ -52,6 +54,7 @@ describe("phase1 CLI — argv parsing", () => {
       provenanceLimit: 10,
       noPush: false,
       publishPr: false,
+      live: false,
     });
     expect(
       parseCliArgs([
@@ -71,6 +74,7 @@ describe("phase1 CLI — argv parsing", () => {
       publishPr: false,
       configFile: "docs/dogfood-gate.example.toml",
       taskFile: "docs/task.json",
+      live: false,
     });
     expect(parseCliArgs(["decisions", "list", "--repo", "/tmp/ws"])).toEqual({
       command: "decisions",
@@ -81,6 +85,7 @@ describe("phase1 CLI — argv parsing", () => {
       noPush: false,
       publishPr: false,
       decisionsCommand: "list",
+      live: false,
     });
     expect(
       parseCliArgs([
@@ -101,6 +106,7 @@ describe("phase1 CLI — argv parsing", () => {
       noPush: true,
       publishPr: true,
       lineageId: "lineage-1",
+      live: false,
     });
     expect(parseCliArgs(["nope"])).toBeUndefined();
   });

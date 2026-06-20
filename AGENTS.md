@@ -2,6 +2,16 @@
 
 Snaffle is a deterministic agent delivery pipeline: an external control-plane **spine** over Pi agents. Gate before claiming done: `bun run check`
 
+## External vs internal agents
+
+- **External task authors** (you, in Cursor/Pi interactive): load the `snaffle`
+  routing skill. Author `.snaffle/tasks/*.json` and run `bun run snaffle -- run`.
+  Do not edit repo files directly for code-change requests.
+- **Internal spine subagents** (spec, planner, implementer, test-author): invoked
+  by the spine with `scoped_write` only and doctrine from `src/skills/`. They must
+  **not** use the Snaffle routing skill, author task files, or edit control-plane
+  paths unless explicitly granted.
+
 ## Routing code changes through Snaffle
 
 For any request to **change, add, fix, or refactor code in this repo**, do not edit
@@ -49,4 +59,5 @@ not code-change requests — handle those directly.
 
 - Architecture and decisions (D1–D25): `deterministic-agent-delivery-pipeline-spec.md`
 - Phase 1 build plan, cut lines, exit criteria: `deterministic-agent-delivery-pipeline-plan.md`
+- Post–Phase 7 backlog and dogfood readiness: `docs/snaffle-backlog.md`
 - Prompt cache hints, skills prefix, provider mapping: `docs/prompt-cache.md`

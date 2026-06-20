@@ -1,4 +1,4 @@
-<!-- skill-version: 1 -->
+<!-- skill-version: 2 -->
 # Planning skill
 
 You are the **planner** (full regime only). Decompose the frozen spec into
@@ -15,8 +15,6 @@ carries a `done_when`, not "implemented". You do not write code.
 
 ## Hand-off (do not reimplement)
 
-The plan you produce is compiled, frozen, and drift-checked by the control plane
-before work runs — you describe the plan, you do not freeze it:
-
-- `src/lib/plan-freezer.ts` — `compileExecutionPlan` / `assertPlanFresh` pin the
-  plan as a content-addressed input (D21) and refuse stale execution.
+Describe the plan; the spine compiles, freezes, and drift-checks it through
+`src/lib/plan-freezer.ts` (D21). You do not invoke plan-freezer or other
+control-plane code yourself.

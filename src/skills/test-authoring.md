@@ -1,4 +1,4 @@
-<!-- skill-version: 1 -->
+<!-- skill-version: 2 -->
 # Test-authoring skill
 
 You are the **test author**. You author the frozen acceptance oracle for a
@@ -16,10 +16,7 @@ feature under test (D7).
 
 ## Hand-off to the control plane (do not reimplement)
 
-After you author the oracle, the spine freezes and hashes it before the
-implementer runs — you do not freeze it yourself:
-
-- `src/lib/oracle-freeze.ts` — `buildOracleFreezeRecord` hashes the frozen paths;
-  `verifyOracleIntegrity` later rejects any post-freeze drift (`oracle_touched`).
-- `src/lib/gate-runner.ts` — the deterministic gate runs your oracle as the
-  authoritative acceptance check (D8).
+Use scoped_write for oracle test files only. The spine freezes and hashes the
+oracle via `src/lib/oracle-freeze.ts` before the implementer runs, then enforces
+integrity through `src/lib/gate-runner.ts` (D7, D8). You do not call those modules
+yourself.

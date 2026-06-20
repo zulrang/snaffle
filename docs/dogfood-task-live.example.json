@@ -1,0 +1,5 @@
+{
+  "goal": "Add a one-line note to docs explaining that live dogfood runs omit scriptedWrites.",
+  "scope": ["docs"],
+  "acceptanceCriteria": ["bun run check remains green"]
+}

@@ -117,6 +117,8 @@ export interface LineagePipelineInput {
   readonly expandContractPlan?: ExpandContractPlan;
   /** Injected rollout client; defaults to dry-run when rollout is enabled (W5). */
   readonly rolloutClient?: RolloutClient;
+  /** When true, agent phases use the config-resolved live model (P0-2). */
+  readonly live?: boolean;
 }
 
 export interface PipelinePhaseRecord {
@@ -367,6 +369,7 @@ export const runLineagePipeline = async (
         repoRoot: input.repoRoot,
         workspaceRoot: input.gate.worktreeRoot,
         ...(cacheHint === undefined ? {} : { cacheHint }),
+        ...(input.live === true ? { live: true } : {}),
       });
       if (!invoked.ok) return err({ kind: "agent_invoke", detail: JSON.stringify(invoked.error) });
 
@@ -423,6 +426,7 @@ export const runLineagePipeline = async (
         frozenAt,
         prompt: task.prompt,
         ...(cacheHint === undefined ? {} : { cacheHint }),
+        ...(input.live === true ? { live: true } : {}),
       });
       if (!authored.ok) {
         return err({ kind: "oracle_authoring", detail: JSON.stringify(authored.error) });
@@ -454,6 +458,7 @@ export const runLineagePipeline = async (
         workspaceRoot: input.gate.worktreeRoot,
         ...(oracleFreeze === undefined ? {} : { oracleFreeze }),
         ...(cacheHint === undefined ? {} : { cacheHint }),
+        ...(input.live === true ? { live: true } : {}),
       });
       if (!invoked.ok) return err({ kind: "agent_invoke", detail: JSON.stringify(invoked.error) });
 

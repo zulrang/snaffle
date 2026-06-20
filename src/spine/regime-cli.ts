@@ -39,6 +39,7 @@ export interface RegimeRunInput {
   readonly repoRoot: string;
   readonly taskFile?: string;
   readonly configFile?: string;
+  readonly live?: boolean;
 }
 
 interface RegimeRunSpec {
@@ -192,12 +193,9 @@ const buildTaskRunSpec = (
     if (!parsed.ok)
       return err({ kind: "task_invalid", detail: `invalid write path: ${write.path}` });
   }
-  const firstWrite = task.scriptedWrites[0];
-  if (firstWrite === undefined) {
-    return err({ kind: "task_invalid", detail: "scriptedWrites must not be empty" });
-  }
 
   const suffix = String(ts);
+  const evidencePath = `${task.scope[0]}/.dogfood-evidence-${suffix}.md`;
   const lineageId = LineageId(`lineage-dogfood-${suffix}`);
   const requirementId = RequirementId(`req-dogfood-${suffix}`);
   const decisionId = DecisionId(`dec-dogfood-${suffix}`);
@@ -229,14 +227,14 @@ const buildTaskRunSpec = (
       "Record a tiny dogfood spec artifact.",
       "",
       "Call scoped_write exactly once for the requested write:",
-      `path: ${firstWrite.path}`,
+      `path: ${evidencePath}`,
       "content:",
       specContent,
       "The spine records this phase evidence but does not apply it to the worktree.",
     ].join("\n"),
     writes: [
       {
-        path: firstWrite.path,
+        path: evidencePath,
         content: specContent,
       },
     ],
@@ -247,14 +245,14 @@ const buildTaskRunSpec = (
       "Record a tiny dogfood plan artifact.",
       "",
       "Call scoped_write exactly once for the requested write:",
-      `path: ${firstWrite.path}`,
+      `path: ${evidencePath}`,
       "content:",
       planContent,
       "The spine records this phase evidence but does not apply it to the worktree.",
     ].join("\n"),
     writes: [
       {
-        path: firstWrite.path,
+        path: evidencePath,
         content: planContent,
       },
     ],
@@ -331,12 +329,19 @@ export const runRegimeLineage = async (
   const config = loadRunConfig(input.repoRoot, input.configFile);
   if (!config.ok) return config;
 
-  const spec =
+  const spec: Result<RegimeRunSpec, RegimeRunError> =
     input.taskFile === undefined
       ? buildDefaultRunSpec(ts.value)
       : (() => {
           const task = loadTaskFile(input.repoRoot, input.taskFile);
           if (!task.ok) return task;
+          if (task.value.scriptedWrites.length === 0 && input.live !== true) {
+            return err<RegimeRunError>({
+              kind: "task_invalid",
+              detail:
+                "scriptedWrites required for faux-backed runs; pass --live or supply scriptedWrites",
+            });
+          }
           return buildTaskRunSpec(task.value, ts.value, config.value);
         })();
   if (!spec.ok) return spec;
@@ -368,6 +373,7 @@ export const runRegimeLineage = async (
       decisionId: spec.value.ids.decisionId,
       decisionReview: spec.value.decisionReview,
       at: ts.value,
+      ...(input.live === true ? { live: true } : {}),
     });
 
     if (!outcome.ok) return err({ kind: "pipeline", detail: JSON.stringify(outcome.error) });

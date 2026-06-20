@@ -7,8 +7,9 @@ import type { SkillName } from "./skills";
  * irreducible; there is no validator and no commit agent. Each definition is
  * pure data: the model tier (resolved provider-neutrally via config, D18), the
  * flat skills it composes (D2), and the write-scope *policy* the spine uses to
- * derive its capability grant (D6). The `stub` kind is the Phase-1 stand-in and
- * has no definition here.
+ * derive its capability grant (D6). Skills are loaded only from `src/skills/`
+ * per this list — never from `.pi/skills`, `AGENTS.md`, or Pi env discovery.
+ * The `stub` kind is the Phase-1 stand-in and has no definition here.
  */
 
 export type RealAgentKind = Exclude<AgentKind, "stub">;

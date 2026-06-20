@@ -2,6 +2,8 @@
 
 Dogfooding Snaffle should follow Snaffle's own doctrine: start with the cheapest reversible change, human watching, tight budget, then earn trust before widening scope. Crawl, walk, run.
 
+**Backlog:** what remains after Phases 1–7 and prioritized next work — [`docs/snaffle-backlog.md`](docs/snaffle-backlog.md).
+
 ## Current State Caveat
 
 Before treating this as a live development runbook, verify the active `run` path is actually doing the work you expect. If the current spine path is still fixture-driven or faux-backed, use these stages to exercise control-plane mechanics only: lock, scope, PRE/POST gate, transition derivation, provenance, decisions, escapes, and PR rendering.

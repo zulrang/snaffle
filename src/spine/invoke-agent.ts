@@ -14,6 +14,7 @@ import {
   type StubInvocationError,
   type StubInvocationMetadata,
 } from "../pi/invoke-stub-agent";
+import type { ExplicitSkillRef } from "../pi/isolated-invocation";
 import type { PromptCacheHint } from "../pi/prompt-cache";
 import type { ScopedWriteAttempt, ScopeEvent } from "./scoped-invocation";
 
@@ -21,7 +22,7 @@ import type { ScopedWriteAttempt, ScopeEvent } from "./scoped-invocation";
  * Real-agent invocation (W2). Composes an agent definition's skills into the
  * stable prefix (D26), resolves its tier to a provider-neutral model (D18), and
  * drives the agent through the same scoped adapter as the stub. Default tests stay
- * faux-backed; `SNAFFLE_LIVE_MODEL=1` switches to the config-resolved live model.
+ * faux-backed; `--live` or `SNAFFLE_LIVE_MODEL=1` switches to the config-resolved live model.
  * The structured result is evidence only; the control plane derives transitions (D19).
  */
 
@@ -40,6 +41,8 @@ export interface AgentInvocationInput {
   readonly oracleFreeze?: OracleFreezeRecord;
   /** Provider-neutral prompt-cache hint (D26); carried out-of-band via stream options. */
   readonly cacheHint?: PromptCacheHint;
+  /** When true, invoke the config-resolved live model instead of the faux provider. */
+  readonly live?: boolean;
 }
 
 export interface AgentInvocationOutcome {
@@ -55,10 +58,9 @@ export type AgentInvocationError =
   | { readonly kind: "skill_load"; readonly detail: SkillLoadError }
   | StubInvocationError;
 
-const liveModelEnabled = (): boolean => {
-  const { SNAFFLE_LIVE_MODEL } = process.env;
-  return SNAFFLE_LIVE_MODEL === "1";
-};
+/** `--live` on the CLI or `SNAFFLE_LIVE_MODEL=1` selects the config-resolved provider. */
+export const resolveInvocationLive = (explicitLive?: boolean): boolean =>
+  explicitLive === true || process.env["SNAFFLE_LIVE_MODEL"] === "1";
 
 /** Invoke one real agent: compose skills → resolve tier → run scoped. */
 export const invokeAgent = async (
@@ -72,6 +74,10 @@ export const invokeAgent = async (
     skills.value,
     input.prompt,
   );
+  const explicitSkills: readonly ExplicitSkillRef[] = skills.value.map((skill) => ({
+    name: skill.name,
+    version: skill.version,
+  }));
   const modelRef = resolveModelTier(input.definition.tier, input.config);
 
   const scopeEvents: ScopeEvent[] = [];
@@ -81,10 +87,11 @@ export const invokeAgent = async (
       scope: input.scope,
       systemPrompt,
       modelRef,
+      explicitSkills,
       ...(input.workspaceRoot === undefined ? {} : { workspaceRoot: input.workspaceRoot }),
       ...(input.oracleFreeze === undefined ? {} : { oracleFreeze: input.oracleFreeze }),
       ...(input.cacheHint === undefined ? {} : { promptCache: input.cacheHint }),
-      ...(liveModelEnabled() ? { invocationMode: "live" as const } : {}),
+      ...(resolveInvocationLive(input.live) ? { invocationMode: "live" as const } : {}),
       onScopeDenial: (denial, toolName) => {
         scopeEvents.push({
           kind: "write_denied",

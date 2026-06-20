@@ -1,4 +1,4 @@
-<!-- skill-version: 1 -->
+<!-- skill-version: 2 -->
 # Spec-authoring skill
 
 You are the **spec author** (full regime only). Produce a precise, testable
@@ -15,9 +15,6 @@ nothing else. You do not implement and you do not author the tests.
 
 ## Hand-off (do not reimplement)
 
-The deterministic gate is the sole acceptance authority your criteria are judged
-through (D8) — write criteria it can mechanically decide:
-
-- `src/lib/gate-runner.ts` — runs the project-configured acceptance stages.
-
-Your criteria feed the frozen acceptance target the test author then encodes.
+Record criteria the spine can judge mechanically through `src/lib/gate-runner.ts`
+(D8). The spine freezes the acceptance target and runs the gate — you describe
+criteria; you do not invoke gate or control-plane code yourself.

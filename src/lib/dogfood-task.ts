@@ -1,10 +1,8 @@
 import { err, ok, type Result } from "../domain/shared";
 
 /**
- * Minimal dogfood task contract for the current faux-backed run path.
- *
- * The task declares the human contract (goal, scope, acceptance) plus
- * `scriptedWrites` while live model generation is still a separate dogfood gap.
+ * Dogfood task contract: goal, scope, acceptance criteria, and optional
+ * `scriptedWrites` for faux-backed runs. Omit writes when using `--live`.
  */
 
 export interface DogfoodScriptedWrite {
@@ -75,12 +73,14 @@ const parseStringArray = (
 const parseScriptedWrites = (
   value: unknown,
 ): Result<readonly DogfoodScriptedWrite[], DogfoodTaskParseError> => {
-  if (!Array.isArray(value) || value.length === 0) {
+  if (value === undefined) return ok([]);
+  if (!Array.isArray(value)) {
     return err({
       kind: "invalid_dogfood_task",
-      detail: "scriptedWrites must be a non-empty array",
+      detail: "scriptedWrites must be an array when present",
     });
   }
+  if (value.length === 0) return ok([]);
   const writes: DogfoodScriptedWrite[] = [];
   for (const [index, item] of value.entries()) {
     if (!isRecord(item)) {
@@ -142,10 +142,17 @@ export const dogfoodTaskPrompt = (task: DogfoodTask): string =>
     "Acceptance criteria:",
     ...task.acceptanceCriteria.map((criterion) => `- ${criterion}`),
     "",
-    "For this dogfood phase, call scoped_write exactly once for each requested write:",
-    ...task.scriptedWrites.map(
-      (write, index) => `${index + 1}. path: ${write.path}\ncontent:\n${write.content}`,
-    ),
-    "",
-    "Do not write outside the declared scope.",
+    ...(task.scriptedWrites.length === 0
+      ? [
+          "Use scoped_write only for paths under the declared scope.",
+          "The spine runs acceptance checks after you finish; do not edit control-plane code.",
+        ]
+      : [
+          "For this dogfood phase, call scoped_write exactly once for each requested write:",
+          ...task.scriptedWrites.map(
+            (write, index) => `${index + 1}. path: ${write.path}\ncontent:\n${write.content}`,
+          ),
+          "",
+          "Do not write outside the declared scope.",
+        ]),
   ].join("\n");
