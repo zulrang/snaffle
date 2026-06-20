@@ -1,53 +1,62 @@
 # Snaffle
 
-**Snaffle** is a deterministic control plane (the **spine**) that drives coding agents over the [Pi](https://pi.dev) harness. The spine owns locks, gates, scope, provenance, and merge decisions; agents produce evidence, not authority. Models run only where intent or synthesis is genuinely irreducible — everything else is scripts, tests, and typed control-plane logic.
+**Snaffle** helps you run AI coding helpers in a safe, step-by-step way.
 
-For architecture and design rationale, see [`deterministic-agent-delivery-pipeline-spec.md`](./deterministic-agent-delivery-pipeline-spec.md). Contributors: [`AGENTS.md`](./AGENTS.md).
+Think of it like a traffic controller for code changes. Snaffle (the **spine**) decides *when* each step runs, *who* is allowed to change files, and *whether* the work is good enough to ship. The AI helpers do the work; Snaffle checks their work and keeps a log.
 
-## Requirements
+Snaffle works with [Pi](https://pi.dev), a toolkit for running coding agents (programs that read and write code for you). AI models are used only when a human judgment is truly needed. Most steps are plain scripts, tests, and fixed rules.
 
-- [Bun](https://bun.com) `>= 1.3` (dev runtime) or **Node** `>= 22` (ship target — `npm run check:node` verifies compatibility)
-- Git (isolated worktrees for gate runs)
-- Pi packages are pinned in `package.json` (`@earendil-works/*@0.74.0`)
+**Want more detail?** See [`deterministic-agent-delivery-pipeline-spec.md`](./deterministic-agent-delivery-pipeline-spec.md) for how Snaffle is designed. If you are changing the code, read [`AGENTS.md`](./AGENTS.md).
+
+## What you need installed
+
+- **[Bun](https://bun.com)** version 1.3 or newer — used to run Snaffle while you develop
+- **Node.js** version 22 or newer — used to check that Snaffle also works in production-like setups (`npm run check:node`)
+- **Git** — tracks code history; Snaffle uses separate Git workspaces so tests do not mess up your main copy
+- Snaffle depends on Pi packages pinned in `package.json` (`@earendil-works/*@0.74.0`)
 
 ## Install
 
 ```bash
 bun install
-bun run check    # typecheck + lint + guards + full test suite
+bun run check    # runs type checks, lint, guards, and all tests
 ```
 
-Run the CLI from the repo:
+Run Snaffle from this folder:
 
 ```bash
 bun run orchestrator -- <command> [options]
 ```
 
-## CLI
+## Commands (CLI)
 
-All commands accept `--repo <path>` (defaults to the current directory). Output is JSON on stdout; non-zero exit codes indicate failure or a non-merge terminal.
+**CLI** means you type commands in a terminal instead of clicking buttons.
 
-| Command | Purpose |
+Most commands take `--repo <path>`. That is the folder with your project. If you leave it out, Snaffle uses the folder you are in now.
+
+Snaffle prints **JSON** on success (structured text that other tools can read). If something fails, it exits with a non-zero code and does not treat the run as finished.
+
+| Command | What it does |
 | --- | --- |
-| `orchestrator run` | Run a lineage through the regime pipeline (spec → plan → oracle → implement → validate, or the minimal two-way path) |
-| `orchestrator status` | Lock state, frozen plan, and recent provenance |
-| `orchestrator decisions list` | Pending human decisions (one-way doors, sampled two-way merges) |
-| `orchestrator decisions approve --lineage <id>` | Authorize continuation for a parked lineage |
-| `orchestrator decisions reject --lineage <id>` | Reject and close a parked lineage |
-| `orchestrator resume --lineage <id> [--no-push]` | Resume an approved lineage; `--no-push` validates without commit/push |
-| `orchestrator escapes list \| report \| propose` | Oracle escapes (gate greens that failed downstream) |
-| `orchestrator escapes apply-criteria --criterion <id>` | Apply a remediation proposal via control-plane re-freeze |
-| `orchestrator rollout status \| resume` | Post-merge flag guardrail state after merge |
+| `orchestrator run` | Runs the full pipeline: plan the work, run agents, run checks, and finish or pause |
+| `orchestrator status` | Shows lock state, frozen plan, and recent history |
+| `orchestrator decisions list` | Lists changes waiting for a human yes/no |
+| `orchestrator decisions approve --lineage <id>` | Lets a paused run continue after you approve |
+| `orchestrator decisions reject --lineage <id>` | Stops and closes a paused run |
+| `orchestrator resume --lineage <id> [--no-push]` | Continues an approved run; `--no-push` runs checks without saving or uploading to Git |
+| `orchestrator escapes list \| report \| propose` | Handles cases where early checks passed but later steps failed |
+| `orchestrator escapes apply-criteria --criterion <id>` | Applies a fix plan through Snaffle’s control layer |
+| `orchestrator rollout status \| resume` | Checks safety flags after code has been merged |
 
-**Flags for `run`:**
+**Extra flags for `run`:**
 
-- `--legacy-skeleton` — Phase-1 single-shot stub path (for regression only)
-- `--variant merge_success\|scope_blocked\|post_gate_rejected` — skeleton variants (legacy mode only)
-- `--owner <id>` — writer lock owner id
-- `--task-file <path>` — dogfood task JSON for the default regime path
-- `--config-file <path>` — dogfood TOML config override for the default regime path
+- `--legacy-skeleton` — old single-shot test path (for regression tests only)
+- `--variant merge_success\|scope_blocked\|post_gate_rejected` — test variants (legacy mode only)
+- `--owner <id>` — who holds the write lock (only one writer at a time)
+- `--task-file <path>` — JSON file describing the task for a demo run
+- `--config-file <path>` — TOML config file for a demo run
 
-**Example:**
+**Examples:**
 
 ```bash
 bun run orchestrator -- run --repo .
@@ -59,11 +68,23 @@ bun run orchestrator -- resume --lineage lineage-abc --no-push
 
 ## Configuration
 
-Snaffle reads project config from `.orchestrator/gate.toml` in the target repo. Gate stages, door taxonomy, model tiers, budget limits, HITL sampling, rollout, and governance all live in this file (or fall back to documented defaults when sections are absent).
+Snaffle reads settings from `.orchestrator/gate.toml` inside your project folder.
 
-Runtime state is written under `.orchestrator/` (gitignored): ownership lock, provenance SQLite, frozen execution plan, acceptance snapshots, parked-change artifacts, decision queue, gate baselines, and oracle freeze records.
+That file can define:
 
-A minimal gate config might declare tier, repo mode, and stages:
+- **Gate stages** — commands that must pass (like lint or tests) before work continues
+- **Door rules** — which changes need a human to approve
+- **Model tiers** — which AI models to use and when
+- **Budget limits** — caps on cost or usage
+- **HITL** — “human in the loop”: when a person must review
+- **Rollout** — checks after code is merged
+- **Governance** — extra policy rules
+
+If a section is missing, Snaffle uses built-in defaults.
+
+While Snaffle runs, it also writes files under `.orchestrator/` (this folder is ignored by Git). That includes locks, history, frozen plans, snapshots, and decision queues.
+
+A small config might look like this:
 
 ```toml
 tier = "full"
@@ -78,53 +99,55 @@ kind = "full_tests"
 command = ["npm", "run", "test"]
 ```
 
-Optional sections include `[door]`, `[tiers]`, `[budget]`, `[hitl]`, `[rollout]`, and `[governance]`. See `src/lib/orchestrator-config.test.ts` for parse examples.
+More examples live in `src/lib/orchestrator-config.test.ts`.
 
-**Live adapters** (opt-in, env-gated in tests):
+**Optional live integrations** (turned on by config and environment variables; not used in default CI):
 
-- PR creation: configure the PR adapter in orchestrator config; requires `GH_TOKEN` for live `gh` mode
-- Rollout: `[rollout]` with `adapter = "live"` and a webhook base URL
-- Real models: set `SNAFFLE_LIVE_MODEL=1` for the env-gated smoke test (not run in default CI)
+- **Pull requests:** set up the PR adapter and `GH_TOKEN` for live GitHub mode
+- **Rollout webhooks:** set `[rollout]` with `adapter = "live"` and a webhook URL
+- **Real AI models:** set `SNAFFLE_LIVE_MODEL=1` for a smoke test with live models
 
-## How it works
+## How a run works
 
-1. **Admit** — Classify the change as one-way or two-way; snapshot the acceptance target; acquire the single-writer lock.
-2. **Plan** — Compile and freeze the execution plan; refuse start if config drifts after freeze.
-3. **Execute** — Run the regime-appropriate agent pipeline in an isolated worktree with per-invocation scope grants.
-4. **Gate** — PRE and POST run the same deterministic multi-stage gate; POST red never merges.
-5. **Park or continue** — The control plane derives the next state from gate evidence and door policy; one-way changes and sampled two-way changes park with a content-addressed artifact.
-6. **Approve** — Human approval authorizes the parked artifact hash; it does not merge or push.
-7. **Resume** — `resume --lineage <id>` reruns POST gate from the parked artifact and only then commits/pushes; `--no-push` validates the continuation without mutating git history.
-8. **Observe** — Provenance, gate spans, oracle escapes, and optional post-merge rollout guardrails.
+1. **Admit** — Snaffle classifies the change, saves a snapshot of what “done” means, and grabs a single-writer lock so two runs do not clash.
+2. **Plan** — Snaffle builds a fixed plan and refuses to start if settings change after that.
+3. **Execute** — Agents run in an isolated Git workspace. Each step gets a clear list of files it may touch (**scope**).
+4. **Gate** — Automated checks run before and after agent work. If the final checks fail, nothing merges.
+5. **Park or continue** — Snaffle decides the next step from check results and door rules. Some changes pause and wait for a human.
+6. **Approve** — A human approves the paused work. Approval does not merge or push by itself.
+7. **Resume** — `resume --lineage <id>` runs final checks on the approved work, then commits and pushes. Use `--no-push` to validate without changing Git history.
+8. **Observe** — Snaffle keeps logs, check timings, escape reports, and optional post-merge safety checks.
 
-Two-way changes on the minimal regime can continue on a green gate unless sampled for HITL. One-way changes always require an explicit human decision. Draining the queue is not completion; merge is derived by the continuation step.
+**Lineage** is Snaffle’s ID for one tracked run through this flow.
 
-## Repository layout
+Some small changes can continue automatically when checks pass. Bigger or riskier changes always need a human decision. Clearing the approval queue is not the same as finishing — the resume step actually ships the work.
+
+## Folder layout
 
 ```
 src/
-  domain/       Pure model — doors, lineages, gates, failures, transitions (no I/O)
-  lib/          Deterministic logic — gate runner, classifiers, scope guard, stores
-  spine/        Orchestrator wiring — CLI, pipeline, batch scheduler, HITL queue
-  pi/           Pi SDK invocation adapter
-  extensions/   Pi path-protection extension (delegates to lib/scope-guard)
-  skills/       Agent skill docs composed at invocation time
+  domain/       Core ideas and types (no file or network access)
+  lib/          Rules and helpers — gates, classifiers, scope checks, storage
+  spine/        CLI, pipeline, scheduling, human-approval queue
+  pi/           Connects Snaffle to the Pi agent toolkit
+  extensions/   Pi add-ons (file protection uses lib/scope-guard)
+  skills/       Instructions given to agents at run time
 ```
 
-Layer rule: `domain/` imports nothing; `lib/` imports `domain/` only; `spine/`, `pi/`, and `extensions/` import `lib/` + `domain/`.
+**Import rule:** `domain/` depends on nothing. `lib/` depends only on `domain/`. `spine/`, `pi/`, and `extensions/` depend on `lib/` and `domain/`. This keeps the core logic in one place.
 
 ## Development
 
 | Script | What it does |
 | --- | --- |
-| `bun run check` | typecheck, lint, bun-native guard, name-branching guard, tests |
-| `npm run check:node` | Same gates under Node (ship-target smoke) |
-| `bun run test` | Test suite only |
-| `bun run lint:fix` | Auto-fix Biome issues |
+| `bun run check` | Typecheck, lint, guards, and full test suite |
+| `npm run check:node` | Same checks under Node (production-style smoke test) |
+| `bun run test` | Tests only |
+| `bun run lint:fix` | Auto-fix style issues with Biome |
 
-CI (`.github/workflows/check.yml`) runs `bun run check` on push and pull requests.
+GitHub Actions (`.github/workflows/check.yml`) runs `bun run check` on every push and pull request.
 
-Pi integration tests use the **faux** provider — they prove SDK and composition shape, not live model quality.
+Pi tests use a **faux** (fake) provider. They check that wiring works; they do not judge real AI output.
 
 ## License
 
