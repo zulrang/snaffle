@@ -41,7 +41,7 @@ export interface ExpandContractPlan {
   readonly frozenAt: Timestamp;
 }
 
-export const EXPAND_CONTRACT_PLAN_REL = ".orchestrator/expand-contract-plan.json";
+export const EXPAND_CONTRACT_PLAN_REL = ".snaffle/expand-contract-plan.json";
 
 export type ExpandContractError =
   | { readonly kind: "non_stateful"; readonly detail: string }
@@ -51,7 +51,7 @@ export type ExpandContractError =
   | { readonly kind: "plan_touched" };
 
 const phaseArtifact = (lineageId: LineageId, phase: ExpandContractPhase): string =>
-  `.orchestrator/expand-contract/${String(lineageId)}/${phase}.json`;
+  `.snaffle/expand-contract/${String(lineageId)}/${phase}.json`;
 
 const defaultDoneWhen = (phase: ExpandContractPhase): string => {
   switch (phase) {

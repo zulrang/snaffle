@@ -8,15 +8,15 @@ import { err, ok, type Result } from "../domain/shared";
 /**
  * Project gate configuration (D8, D18, W3).
  *
- * Stage commands are declared in `.orchestrator/gate.toml` when present; otherwise
+ * Stage commands are declared in `.snaffle/gate.toml` when present; otherwise
  * the worktree's package.json `check` script maps to a single full_tests stage.
  */
 
-export const ORCHESTRATOR_DIR = ".orchestrator";
-export const DEFAULT_GATE_CONFIG_REL = ".orchestrator/gate.toml";
-export const DEFAULT_GATE_BASELINE_REL = ".orchestrator/gate-baseline.json";
-export const DEFAULT_CONTRACT_BASELINE_REL = ".orchestrator/contract-baseline.json";
-export const DEFAULT_ORACLE_FREEZE_REL = ".orchestrator/oracle-freeze.json";
+export const SNAFFLE_DIR = ".snaffle";
+export const DEFAULT_GATE_CONFIG_REL = ".snaffle/gate.toml";
+export const DEFAULT_GATE_BASELINE_REL = ".snaffle/gate-baseline.json";
+export const DEFAULT_CONTRACT_BASELINE_REL = ".snaffle/contract-baseline.json";
+export const DEFAULT_ORACLE_FREEZE_REL = ".snaffle/oracle-freeze.json";
 
 export type GateTier = "affected" | "full";
 export type RepoGateMode = "strict" | "wrap" | "greenfield";

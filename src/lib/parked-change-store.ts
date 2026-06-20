@@ -17,7 +17,7 @@ import { hashCanonicalJson } from "./provenance-hash";
 import type { RegimePlan } from "./regime-plan";
 import type { WorktreeWrite } from "./worktree-writes";
 
-export const PARKED_CHANGE_DIR = ".orchestrator/parked";
+export const PARKED_CHANGE_DIR = ".snaffle/parked";
 
 export interface ParkedChangeMaterial {
   readonly lineageId: LineageId;

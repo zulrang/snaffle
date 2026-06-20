@@ -19,7 +19,7 @@ import { openSqliteDatabase, type SqliteDatabase } from "./sqlite";
  * material needed to recompute and verify stored hashes on read-back.
  */
 
-export const PROVENANCE_DB_DIR = ".orchestrator";
+export const PROVENANCE_DB_DIR = ".snaffle";
 export const PROVENANCE_DB_FILE = "provenance.sqlite";
 
 const SCHEMA = `

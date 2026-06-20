@@ -8,7 +8,7 @@ import { openSqliteDatabase, type SqliteDatabase } from "./sqlite";
  * in-memory governor remains default when disabled.
  */
 
-export const BUDGET_DB_DIR = ".orchestrator";
+export const BUDGET_DB_DIR = ".snaffle";
 export const BUDGET_DB_FILE = "budget.sqlite";
 
 export type BudgetLedgerError =

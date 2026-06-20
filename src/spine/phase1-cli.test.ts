@@ -143,11 +143,11 @@ describe("phase1 CLI — status (read-only observer)", () => {
 
 describe("phase1 CLI — run (W8 loop)", () => {
   afterEach(async () => {
-    const lockPath = join(repoRoot, ".orchestrator", "ownership.lock.json");
+    const lockPath = join(repoRoot, ".snaffle", "ownership.lock.json");
     if (existsSync(lockPath)) {
       rmSync(lockPath, { force: true });
     }
-    const provenancePath = join(repoRoot, ".orchestrator", "provenance.sqlite");
+    const provenancePath = join(repoRoot, ".snaffle", "provenance.sqlite");
     if (existsSync(provenancePath)) {
       rmSync(provenancePath, { force: true });
     }

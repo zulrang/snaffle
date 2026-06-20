@@ -22,11 +22,11 @@ import { hashCanonicalJson } from "./provenance-hash";
  * Acceptance-target snapshotter (D20, W1).
  *
  * Computes `targetHash` from criteria, persists an immutable hashed snapshot
- * under `.orchestrator/`, and verifies reload integrity. Acceptance judges the
+ * under `.snaffle/`, and verifies reload integrity. Acceptance judges the
  * snapshot, not live editable source.
  */
 
-export const ACCEPTANCE_SNAPSHOT_REL = ".orchestrator/acceptance-snapshot.json";
+export const ACCEPTANCE_SNAPSHOT_REL = ".snaffle/acceptance-snapshot.json";
 
 export interface AcceptanceSnapshotRecord {
   readonly targetHash: ContentHash;

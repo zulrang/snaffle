@@ -8,7 +8,7 @@ import { openSqliteDatabase, type SqliteDatabase } from "./sqlite";
  * misses; clusters by criterion to drive fixes at test-author, not patches.
  */
 
-export const ESCAPE_DB_DIR = ".orchestrator";
+export const ESCAPE_DB_DIR = ".snaffle";
 export const ESCAPE_DB_FILE = "oracle-escapes.sqlite";
 
 export type OracleEscapeSource = "hitl" | "sample" | "metric";

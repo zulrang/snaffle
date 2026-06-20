@@ -302,7 +302,7 @@ describe("D19 — adversarial transition derivation", () => {
       invocationId,
       agentKind: "stub",
       outcome: "succeeded",
-      edits: [{ path: ".orchestrator/lineage-state.json", operation: "modify" }],
+      edits: [{ path: ".snaffle/lineage-state.json", operation: "modify" }],
       summary: '{"status":"merged"}',
       status: "merged",
     };
@@ -320,7 +320,7 @@ describe("D19 — adversarial transition derivation", () => {
       invocationId,
       agentKind: "stub",
       outcome: "succeeded",
-      edits: [{ path: ".orchestrator/provenance.sqlite", operation: "modify" }],
+      edits: [{ path: ".snaffle/provenance.sqlite", operation: "modify" }],
       summary: "overwrite provenance",
     };
 

@@ -23,7 +23,7 @@ import type { ScopedWriteAttempt, ScopeEvent } from "./scoped-invocation";
  * weakens, or even sees a mutable copy of its own grader.
  */
 
-export const ORACLE_FREEZE_REL_PATH = ".orchestrator/oracle-freeze.json";
+export const ORACLE_FREEZE_REL_PATH = ".snaffle/oracle-freeze.json";
 
 export interface OracleAuthoringInput {
   readonly worktreeRoot: string;

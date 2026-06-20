@@ -12,7 +12,7 @@ import { err, ok, type Result } from "../domain/shared";
  * a dead pid means the lock is stale and may be reclaimed.
  */
 
-export const OWNERSHIP_LOCK_DIR = ".orchestrator";
+export const OWNERSHIP_LOCK_DIR = ".snaffle";
 export const OWNERSHIP_LOCK_FILE = "ownership.lock.json";
 
 export interface LockRecord {

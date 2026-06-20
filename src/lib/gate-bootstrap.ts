@@ -41,7 +41,7 @@ export const bootstrapGreenfieldGate = (
   }
 
   try {
-    mkdirSync(join(repoRoot, ".orchestrator"), { recursive: true });
+    mkdirSync(join(repoRoot, ".snaffle"), { recursive: true });
     writeFileSync(gateConfigPath, defaultGreenfieldGateConfigToml(), "utf8");
     writeDefaultPackageJson(repoRoot);
     writeFileSync(

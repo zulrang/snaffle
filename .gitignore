@@ -12,7 +12,7 @@ dist/
 # Runtime state (spec D18: SQLite + filesystem diff artifacts live under a workspace dir)
 *.sqlite
 *.sqlite-journal
-.orchestrator/
+.snaffle/
 
 # Logs
 *.log

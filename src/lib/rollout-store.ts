@@ -8,7 +8,7 @@ import type { RolloutGuardrailOutcome } from "./rollout-guardrail";
  * Last rollout outcome store (D8, W3). File-backed record for operator ramp CLI.
  */
 
-export const ROLLOUT_LAST_REL = ".orchestrator/rollout-last.json";
+export const ROLLOUT_LAST_REL = ".snaffle/rollout-last.json";
 
 export interface RolloutLastRecord {
   readonly lineageId: LineageId;

@@ -138,7 +138,7 @@ describe("W2 — affected/full tiers (D12)", () => {
 });
 
 describe("W7 — oracle freeze (D7)", () => {
-  const oracleFreezeRel = ".orchestrator/oracle-freeze.json";
+  const oracleFreezeRel = ".snaffle/oracle-freeze.json";
 
   const writeEvent = (path: string): ToolCallEvent => ({
     type: "tool_call",

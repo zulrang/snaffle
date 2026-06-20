@@ -27,7 +27,7 @@ describe("S3/W5 — execution plan compile + drift (D21)", () => {
 
   test("mutating gate.toml after freeze yields stale-plan error", () => {
     const root = mkdtempSync(join(tmpdir(), "orchestrator-plan-"));
-    mkdirSync(join(root, ".orchestrator"), { recursive: true });
+    mkdirSync(join(root, ".snaffle"), { recursive: true });
     writeFileSync(join(root, DEFAULT_GATE_CONFIG_REL), 'tier = "full"\n');
 
     const frozen = must(freezePlanAt(root));
@@ -44,7 +44,7 @@ describe("S3/W5 — execution plan compile + drift (D21)", () => {
 
   test("last-good plan is queryable on disk", () => {
     const root = mkdtempSync(join(tmpdir(), "orchestrator-plan2-"));
-    mkdirSync(join(root, ".orchestrator"), { recursive: true });
+    mkdirSync(join(root, ".snaffle"), { recursive: true });
     writeFileSync(join(root, DEFAULT_GATE_CONFIG_REL), '[door]\nauth = ["**/auth/**"]\n');
 
     const frozen = must(freezePlanAt(root));

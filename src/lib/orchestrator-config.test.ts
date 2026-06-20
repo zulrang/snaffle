@@ -172,7 +172,7 @@ adapter = "live"
 
   test("loads from worktree gate.toml path", () => {
     const root = mkdtempSync(join(tmpdir(), "orchestrator-gate-toml-"));
-    mkdirSync(join(root, ".orchestrator"), { recursive: true });
+    mkdirSync(join(root, ".snaffle"), { recursive: true });
     writeFileSync(
       join(root, DEFAULT_GATE_CONFIG_REL),
       `[door]\npersisted_schema = ["**/migrations/**"]\n`,
@@ -189,7 +189,7 @@ adapter = "live"
     );
     const orchestrator = must(parseOrchestratorToml(raw));
     const root = mkdtempSync(join(tmpdir(), "orchestrator-dogfood-template-"));
-    mkdirSync(join(root, ".orchestrator"), { recursive: true });
+    mkdirSync(join(root, ".snaffle"), { recursive: true });
     writeFileSync(join(root, DEFAULT_GATE_CONFIG_REL), raw);
 
     const gate = must(loadGateConfig(root));

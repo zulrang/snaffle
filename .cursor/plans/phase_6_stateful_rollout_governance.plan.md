@@ -18,7 +18,7 @@ todos:
     content: "W1: Stateful change detector (D9) — sole entry point for expand/contract"
     status: completed
   - id: w2-expand-contract-emitter
-    content: "W2: Expand/contract emitter — hashed phases persisted under .orchestrator/"
+    content: "W2: Expand/contract emitter — hashed phases persisted under .snaffle/"
     status: completed
   - id: w3-pipeline-phases
     content: "W3: Expand/contract pipeline phases in full regime when stateful"

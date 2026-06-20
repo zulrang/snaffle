@@ -9,7 +9,7 @@ import { defaultGovernancePolicy, parseGovernanceSection } from "./governance-po
 
 /**
  * Orchestrator control-plane config (D15, D18, D22) — door taxonomy, tier mapping,
- * budget limits. Parsed from the same `.orchestrator/gate.toml` as gate stages
+ * budget limits. Parsed from the same `.snaffle/gate.toml` as gate stages
  * (cut line: fold sections before a separate config file).
  */
 
@@ -454,7 +454,7 @@ export const parseOrchestratorToml = (
   });
 };
 
-/** Load orchestrator config from `.orchestrator/gate.toml`; absent file → defaults. */
+/** Load orchestrator config from `.snaffle/gate.toml`; absent file → defaults. */
 export const loadOrchestratorConfig = (
   worktreeRoot: string,
 ): Result<OrchestratorConfig, OrchestratorConfigError> => {

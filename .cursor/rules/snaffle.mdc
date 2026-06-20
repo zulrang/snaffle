@@ -25,7 +25,7 @@ yourself, or anything outside this repo.
 
 ## Task intake contract
 
-Every task is a JSON file under `.orchestrator/tasks/<slug>.json`. Required
+Every task is a JSON file under `.snaffle/tasks/<slug>.json`. Required
 fields (see `src/lib/dogfood-task.ts` for the parser, `docs/dogfood-task.example.json` for an example):
 
 ```json
@@ -59,7 +59,7 @@ authoritative, but your scope choice drives it:
 - **Two-way** (reversible): edits to leaf code/docs not in the public-contract
   list. Auto-merges if green and not sampled.
 - **One-way** (needs human): touches anything in `[door.paths].public_contract`
-  of `.orchestrator/gate.toml` — gate/scope/oracle/door/transition/spine/pi/
+  of `.snaffle/gate.toml` — gate/scope/oracle/door/transition/spine/pi/
   extensions/scripts/workflows/package.json. These park at `awaiting_human`
   and never auto-merge.
 
@@ -72,10 +72,10 @@ the human queue.
 Run from the repo root:
 
 ```bash
-bun run snaffle -- run --task-file .orchestrator/tasks/<slug>.json
+bun run snaffle -- run --task-file .snaffle/tasks/<slug>.json
 ```
 
-Optional `--config-file <path>` to override `.orchestrator/gate.toml`. Optional
+Optional `--config-file <path>` to override `.snaffle/gate.toml`. Optional
 `--owner <your-id>` to attribute the write lock.
 
 Exit codes: `0` = merged, `1` = parked (awaiting_human) or non-merged terminal,

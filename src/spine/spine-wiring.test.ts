@@ -95,7 +95,7 @@ describe("Phase 6 spine wiring", () => {
 
   test("recordOracleEscapeAtRepo is idempotent per source", () => {
     workspace = mkdtempSync(join(tmpdir(), "spine-escape-"));
-    mkdirSync(join(workspace, ".orchestrator"), { recursive: true });
+    mkdirSync(join(workspace, ".snaffle"), { recursive: true });
     const ts = must(parseTimestamp(1));
     const lineageId = must(LineageId("L-esc"));
     recordOracleEscapeAtRepo(workspace, {

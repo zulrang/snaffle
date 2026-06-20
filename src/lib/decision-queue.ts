@@ -12,7 +12,7 @@ import { openSqliteDatabase, type SqliteDatabase } from "./sqlite";
  * authorization or rejection only — the queue never performs continuation work.
  */
 
-export const DECISION_DB_DIR = ".orchestrator";
+export const DECISION_DB_DIR = ".snaffle";
 export const DECISION_DB_FILE = "decisions.sqlite";
 
 export type DecisionKind = "merge_hold" | "door_override" | "spike_resolution" | "two_way_sample";

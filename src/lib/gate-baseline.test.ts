@@ -33,8 +33,8 @@ describe("S2/W5 — characterization baseline (D16)", () => {
     expect(baseline.hash.length).toBeGreaterThan(0);
 
     const root = mkdtempSync(join(tmpdir(), "orchestrator-base-hash-"));
-    saveGateBaseline(root, ".orchestrator/gate-baseline.json", baseline);
-    const loaded = must(loadGateBaseline(root, ".orchestrator/gate-baseline.json"));
+    saveGateBaseline(root, ".snaffle/gate-baseline.json", baseline);
+    const loaded = must(loadGateBaseline(root, ".snaffle/gate-baseline.json"));
     expect(loaded?.hash).toBe(baseline.hash);
     rmSync(root, { recursive: true, force: true });
   });
@@ -67,7 +67,7 @@ describe("S2/W5 — characterization baseline (D16)", () => {
 
   test("wrap mode PRE allows known-red tree and blocks regression", async () => {
     const root = mkdtempSync(join(tmpdir(), "orchestrator-wrap-"));
-    const rel = ".orchestrator/gate-baseline.json";
+    const rel = ".snaffle/gate-baseline.json";
     writeFileSync(
       join(root, "package.json"),
       JSON.stringify({ scripts: { check: "exit 0" } }),

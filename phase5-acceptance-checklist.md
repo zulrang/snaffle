@@ -13,7 +13,7 @@ Each box names the test that proves it. `bun run check` is green (270 tests).
 
 ## Work items (W1–W9)
 
-- [x] **W1** Acceptance-target snapshotter — computes hash, persists under `.orchestrator/`, reload + tamper detection — `src/lib/acceptance-snapshot.test.ts`
+- [x] **W1** Acceptance-target snapshotter — computes hash, persists under `.snaffle/`, reload + tamper detection — `src/lib/acceptance-snapshot.test.ts`
 - [x] **W2** `DecisionId`/`BatchId` smart constructors; `admitted` state distinct from `running` — `src/lib/lineage-admission.test.ts`
 - [x] **W3** Conflict admission in `lib/` — sole scheduler entry point over declared scope — `src/lib/conflict-admission.test.ts`
 - [x] **W4** Bounded-N lineage scheduler — N+M at parallelism N, non-conflicting parallel, conflicting serializes, one writer lock — `src/lib/lineage-scheduler.test.ts`, `src/spine/lineage-batch.test.ts`

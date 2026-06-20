@@ -41,7 +41,7 @@ describe("W7 — provenance logging after stub invocation (D10)", () => {
 
   test("after a run the generation record is queryable with a verifiable context hash", async () => {
     workspaceRoot = mkdtempSync(join(tmpdir(), "orchestrator-w7-spine-"));
-    const dbPath = join(workspaceRoot, ".orchestrator", "provenance.sqlite");
+    const dbPath = join(workspaceRoot, ".snaffle", "provenance.sqlite");
     store = openProvenanceStore(dbPath);
 
     const invocationId = must(InvocationId("inv-w7-spine"));
@@ -93,7 +93,7 @@ describe("D10 — provenance hash integrity after a run", () => {
 
   test("hand-recomputed context hash matches stored inputs; corruption is detected", async () => {
     workspaceRoot = mkdtempSync(join(tmpdir(), "orchestrator-d10-"));
-    const dbPath = join(workspaceRoot, ".orchestrator", "provenance.sqlite");
+    const dbPath = join(workspaceRoot, ".snaffle", "provenance.sqlite");
     store = openProvenanceStore(dbPath);
 
     const invocationId = must(InvocationId("inv-d10-hand"));
@@ -159,7 +159,7 @@ describe("D10 — provenance hash integrity after a run", () => {
 
   test("captures pinned Pi SDK tool versions and temp-0, not only the model ref", async () => {
     workspaceRoot = mkdtempSync(join(tmpdir(), "orchestrator-d10-meta-"));
-    const dbPath = join(workspaceRoot, ".orchestrator", "provenance.sqlite");
+    const dbPath = join(workspaceRoot, ".snaffle", "provenance.sqlite");
     store = openProvenanceStore(dbPath);
 
     const invocationId = must(InvocationId("inv-d10-meta"));

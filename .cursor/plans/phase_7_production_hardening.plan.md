@@ -27,7 +27,7 @@ todos:
     content: "W4: Optional budget persistence (W11 carry)"
     status: completed
   - id: w5-remediation-emitter
-    content: "W5: proposeEscapeRemediation + persist under .orchestrator/"
+    content: "W5: proposeEscapeRemediation + persist under .snaffle/"
     status: completed
   - id: w6-remediation-cli
     content: "W6: escapes propose | apply-criteria CLI"

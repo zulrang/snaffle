@@ -35,7 +35,7 @@ describe("W7 — SQLite provenance store (D10)", () => {
 
   test("generation record is queryable and context hash recomputes from stored inputs", () => {
     workspaceRoot = mkdtempSync(join(tmpdir(), "orchestrator-w7-"));
-    dbPath = join(workspaceRoot, ".orchestrator", "provenance.sqlite");
+    dbPath = join(workspaceRoot, ".snaffle", "provenance.sqlite");
     store = openProvenanceStore(dbPath);
 
     const prompt = "Apply a trivial edit to src/domain/gate.ts";
@@ -93,7 +93,7 @@ describe("W7 — SQLite provenance store (D10)", () => {
 
   test("detects tampered prompt material on read-back", () => {
     workspaceRoot = mkdtempSync(join(tmpdir(), "orchestrator-w7-"));
-    dbPath = join(workspaceRoot, ".orchestrator", "provenance.sqlite");
+    dbPath = join(workspaceRoot, ".snaffle", "provenance.sqlite");
     store = openProvenanceStore(dbPath);
 
     const prompt = "original prompt";

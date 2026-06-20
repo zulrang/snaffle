@@ -5,7 +5,7 @@ Snaffle is a deterministic agent delivery pipeline: an external control-plane **
 ## Routing code changes through Snaffle
 
 For any request to **change, add, fix, or refactor code in this repo**, do not edit
-repo files directly. Author a task file under `.orchestrator/tasks/<slug>.json`
+repo files directly. Author a task file under `.snaffle/tasks/<slug>.json`
 and run `bun run snaffle -- run --task-file <path>`. Load the `snaffle`
 skill (`.pi/skills/snaffle/SKILL.md`) for the task-file schema, door hints, and
 reporting steps. Snaffle drives its own subagents in an isolated worktree under
@@ -33,7 +33,7 @@ not code-change requests — handle those directly.
 
 - `bun.lock` (unless intentionally changing pinned deps)
 - `node_modules/`
-- `{workspace}/.orchestrator/` (runtime lock/state; gitignored)
+- `{workspace}/.snaffle/` (runtime lock/state; gitignored)
 - `src/lib/fixtures/` (subprocess crash tests; change only with matching test updates)
 
 ## Non-Obvious Rules

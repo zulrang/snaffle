@@ -75,7 +75,7 @@ const runningState: LineageState = { status: "running", phase: "implement" };
  * question; its output is never the change, so it is confined to a scratch path
  * the runner never applies to the worktree — disjoint from any lineage scope.
  */
-export const SPIKE_THROWAWAY_PATH = ".orchestrator/spike";
+export const SPIKE_THROWAWAY_PATH = ".snaffle/spike";
 
 const spikeThrowawayScope = () => {
   const path = parseRepoPath(SPIKE_THROWAWAY_PATH);

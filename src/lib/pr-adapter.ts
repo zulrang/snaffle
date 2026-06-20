@@ -31,7 +31,7 @@ export type PublishPrResult =
   | { readonly kind: "opened"; readonly url: string }
   | { readonly kind: "degraded_to_queue"; readonly detail: string };
 
-export const PR_FAILURE_QUEUE_DIR = ".orchestrator/pr-failures";
+export const PR_FAILURE_QUEUE_DIR = ".snaffle/pr-failures";
 
 export interface PrFailureQueueItem {
   readonly source: PrSource;

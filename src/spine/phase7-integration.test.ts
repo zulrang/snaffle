@@ -22,7 +22,7 @@ describe("W9 — Phase 7 production loop (offline mirror)", () => {
 
   test("webhook rollout persists last outcome and records metric escape on breach", async () => {
     workspace = mkdtempSync(join(tmpdir(), "w9-p7-"));
-    mkdirSync(join(workspace, ".orchestrator"), { recursive: true });
+    mkdirSync(join(workspace, ".snaffle"), { recursive: true });
 
     const fetchFn: HttpFetch = async (input) => {
       if (input.endsWith("/arm")) return { ok: true, status: 200, text: async () => "" };

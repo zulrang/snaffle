@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ContentHash } from "../domain/shared";
 import { contentHashEquals, err, ok, type Result } from "../domain/shared";
-import { DEFAULT_GATE_CONFIG_REL, ORCHESTRATOR_DIR } from "./gate-config";
+import { DEFAULT_GATE_CONFIG_REL, SNAFFLE_DIR } from "./gate-config";
 import {
   defaultOrchestratorConfig,
   type OrchestratorConfig,
@@ -15,7 +15,7 @@ import { hashCanonicalJson } from "./provenance-hash";
  * Config inputs are compiled to a content-addressed plan; drift after freeze is refused.
  */
 
-export const FROZEN_PLAN_REL = ".orchestrator/frozen-plan.json";
+export const FROZEN_PLAN_REL = ".snaffle/frozen-plan.json";
 
 export interface PlanSources {
   readonly gateTomlRaw: string;
@@ -95,7 +95,7 @@ export const saveFrozenPlan = (
   worktreeRoot: string,
   plan: FrozenExecutionPlan,
 ): Result<string, PlanFreezeError> => {
-  const dir = join(worktreeRoot, ORCHESTRATOR_DIR);
+  const dir = join(worktreeRoot, SNAFFLE_DIR);
   const path = join(worktreeRoot, FROZEN_PLAN_REL);
   try {
     mkdirSync(dir, { recursive: true });

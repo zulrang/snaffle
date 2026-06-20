@@ -60,7 +60,7 @@ const idsFor = (suffix: string): SkeletonRunIds => ({
 });
 
 const writeGateToml = (root: string, body: string): void => {
-  mkdirSync(join(root, ".orchestrator"), { recursive: true });
+  mkdirSync(join(root, ".snaffle"), { recursive: true });
   writeFileSync(join(root, DEFAULT_GATE_CONFIG_REL), body);
 };
 

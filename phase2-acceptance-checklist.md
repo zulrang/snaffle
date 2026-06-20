@@ -24,7 +24,7 @@ Each box names the test that proves it. `bun run check` is green.
 
 ## S3 / W6 — greenfield bootstrap
 
-- [x] Empty repo bootstrap → `.orchestrator/gate.toml` + runnable check — `src/lib/gate-bootstrap.test.ts`
+- [x] Empty repo bootstrap → `.snaffle/gate.toml` + runnable check — `src/lib/gate-bootstrap.test.ts`
 - [x] Green PRE on fresh greenfield without hand-editing — `src/lib/gate-bootstrap.test.ts`
 
 ## W1 / D12 — PRE/POST identity

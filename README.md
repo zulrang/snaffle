@@ -68,7 +68,7 @@ bun run snaffle -- resume --lineage lineage-abc --no-push
 
 ## Configuration
 
-Snaffle reads settings from `.orchestrator/gate.toml` inside your project folder.
+Snaffle reads settings from `.snaffle/gate.toml` inside your project folder.
 
 That file can define:
 
@@ -82,7 +82,7 @@ That file can define:
 
 If a section is missing, Snaffle uses built-in defaults.
 
-While Snaffle runs, it also writes files under `.orchestrator/` (this folder is ignored by Git). That includes locks, history, frozen plans, snapshots, decision queues, and PR failure queue items.
+While Snaffle runs, it also writes files under `.snaffle/` (this folder is ignored by Git). That includes locks, history, frozen plans, snapshots, decision queues, and PR failure queue items.
 
 A small config might look like this:
 
@@ -103,7 +103,7 @@ More examples live in `src/lib/orchestrator-config.test.ts`.
 
 **Optional live integrations** (turned on by config and environment variables; not used in default CI):
 
-- **Pull requests:** use `resume --publish-pr` after approval; failed `gh pr create` attempts degrade to `.orchestrator/pr-failures/`
+- **Pull requests:** use `resume --publish-pr` after approval; failed `gh pr create` attempts degrade to `.snaffle/pr-failures/`
 - **Rollout webhooks:** set `[rollout]` with `adapter = "live"` and a webhook URL
 - **Real AI models:** set `SNAFFLE_LIVE_MODEL=1` for a smoke test with live models
 

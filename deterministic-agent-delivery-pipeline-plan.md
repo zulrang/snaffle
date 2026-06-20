@@ -125,13 +125,13 @@ W8 green in CI under Node; contract-diff catches a deliberately reshaped schema;
 
 **S2 — Failure evidence → verdict.** (M) Deterministically classify gate reds, scope/oracle violations, apply errors, agent `failed`, and infra faults into the full D4 taxonomy; validate the emitted verdict artifact (malformed packet → `malformed` verdict, never acted on). *done_when:* one fixture per category classifies to the expected `FailureCategory`; a deliberately malformed classifier packet routes to human via `routeVerdict`; `apply_failure` routes to `control_plane_repair`, not retry.
 
-**S3 — Plan compile + drift.** (M) Compile gate config + door taxonomy + tier mapping + capability defaults into a single content-addressed `ExecutionPlan`; detect drift when source inputs change after freeze; retain last-good plan. *done_when:* plan hash recomputes from stored inputs; mutating `.orchestrator/gate.toml` (or equivalent) after freeze yields a typed stale-plan error; last-good plan is queryable for inspection/rollback.
+**S3 — Plan compile + drift.** (M) Compile gate config + door taxonomy + tier mapping + capability defaults into a single content-addressed `ExecutionPlan`; detect drift when source inputs change after freeze; retain last-good plan. *done_when:* plan hash recomputes from stored inputs; mutating `.snaffle/gate.toml` (or equivalent) after freeze yields a typed stale-plan error; last-good plan is queryable for inspection/rollback.
 
 **S4 — Provider-neutral tier resolution.** (S) Resolve `light`/`mid`/`heavy` → `{ provider, model, version? }` from TOML through one `lib/` function consumed by the Pi adapter; faux provider proves shape in tests. *done_when:* each tier resolves from config; `escalate_one_tier` bumps exactly one step and stops at heavy; no vendor string appears in `lib/` outside config parsing.
 
 ### Work items
 
-**W1 — Orchestrator config loader (D18, D15).** (M; S1, S4) Extend project config beyond gate stages: door path patterns, model tier table, budget limits. Single TOML (e.g. `.orchestrator/config.toml`) or documented sections; fail-closed parse errors. *done_when:* valid TOML yields typed config; absent sections fall back to documented defaults; invalid config returns typed errors, never partial config.
+**W1 — Orchestrator config loader (D18, D15).** (M; S1, S4) Extend project config beyond gate stages: door path patterns, model tier table, budget limits. Single TOML (e.g. `.snaffle/config.toml`) or documented sections; fail-closed parse errors. *done_when:* valid TOML yields typed config; absent sections fall back to documented defaults; invalid config returns typed errors, never partial config.
 
 **W2 — Door classifier in `lib/` (D5, D15; S1).** (M; W1) `classifyDoor(scope, hints, config) → DoorClassification` using config patterns; call domain constructors (`classifyOneWay`, `classifyTwoWay`, `classifyAmbiguousAsOneWay`). *done_when:* tests cover each trigger type, two-way default, and ambiguous→one-way; classifier is the only door entry point used by the spine.
 
@@ -139,7 +139,7 @@ W8 green in CI under Node; contract-diff catches a deliberately reshaped schema;
 
 **W4 — Failure router + retry policy (D4; W3).** (S; W3) Compose classifier + `routeVerdict` + bounded transient retry (same tier) + single `model_capability` escalation. *done_when:* transient retries cap and stop; second `model_capability` on same lineage does not escalate again; categories that must not spend model budget never invoke the stub/model path.
 
-**W5 — Execution plan compiler + freezer (D21; S3).** (M; W1) `compileExecutionPlan(sources) → FrozenPlan` with content hash; `assertPlanFresh(frozen, liveSources)` refuses stale execution. *done_when:* hash recomputes from canonical JSON; drift after freeze is refused with typed error; last-good plan retained on disk under `.orchestrator/`.
+**W5 — Execution plan compiler + freezer (D21; S3).** (M; W1) `compileExecutionPlan(sources) → FrozenPlan` with content hash; `assertPlanFresh(frozen, liveSources)` refuses stale execution. *done_when:* hash recomputes from canonical JSON; drift after freeze is refused with typed error; last-good plan retained on disk under `.snaffle/`.
 
 **W6 — Plan hash in provenance (D10, D21; W5).** (S; W5) Replace `PHASE1_SKELETON_PLAN` / `computePlanHash()` with the frozen plan from W5; generation records carry the real plan hash. *done_when:* provenance round-trip stores and recomputes plan hash from frozen plan inputs; skeleton run logs the compiled plan, not the Phase 1 constant.
 
@@ -154,7 +154,7 @@ W8 green in CI under Node; contract-diff catches a deliberately reshaped schema;
 ### Cut lines (shed in this order if time runs short)
 
 1. SQLite persistence for budget counters — keep in-memory governor; defer durable spend ledger to Phase 5/6.
-2. Separate `.orchestrator/config.toml` — fold door/tier/budget into existing `gate.toml` sections first.
+2. Separate `.snaffle/config.toml` — fold door/tier/budget into existing `gate.toml` sections first.
 3. Full retry loop in W9 — keep classify+route observable in spine; defer automatic re-invocation to Phase 4 when real agents exist.
 4. Operator pause UX — keep budget pause + source tagging; defer CLI/TUI for operator pause to Phase 5 HITL.
 
@@ -272,7 +272,7 @@ Realizes spec **D11** (batched human decision queue) and **D20** (frozen accepta
 
 ### Work items
 
-**W1 — Acceptance-target snapshotter (D20).** (M; S-none) A `lib/` snapshotter that computes `targetHash` from the criteria and persists an immutable hashed snapshot under `.orchestrator/`; acceptance judges against the snapshot, not live source. *done_when:* identical criteria hash identically and differing criteria diverge; the snapshot is retained on disk and reloadable; `freezeAcceptanceTarget` callers no longer hand-supply a hash; tampering with the snapshot is detected.
+**W1 — Acceptance-target snapshotter (D20).** (M; S-none) A `lib/` snapshotter that computes `targetHash` from the criteria and persists an immutable hashed snapshot under `.snaffle/`; acceptance judges against the snapshot, not live source. *done_when:* identical criteria hash identically and differing criteria diverge; the snapshot is retained on disk and reloadable; `freezeAcceptanceTarget` callers no longer hand-supply a hash; tampering with the snapshot is detected.
 
 **W2 — Decision/lineage id + state types (D11, D20).** (S) Add `DecisionId` and `BatchId` smart constructors; put the unused `WorktreeId`/`AttemptId` to work; give the `admitted` `LineageState` a producer. *done_when:* each new id has a passing smart-constructor test; `admitted` is produced by the scheduler on admission and is distinct from `running`.
 
@@ -350,7 +350,7 @@ Realizes spec **D8 (post-launch)**, **D9**, **D10 (spans)**, **D15**, and **D24*
 
 **W1 — Stateful change detector (D9).** (S; S1) `detectStatefulChange(scope, door, contractSurface?) → StatefulChangeKind` — pure classifier over declared scope + door triggers + optional contract baseline diff; the sole entry point for expand/contract. *done_when:* `persisted_schema` paths and contract-surface touches classify as stateful; pure code/doc changes do not; ambiguous scope → stateful (conservative).
 
-**W2 — Expand/contract emitter (D9).** (L; S1, W1) `emitExpandContractPlan(input) → ExpandContractPlan` with hashed phases, artifact paths, and frozen criteria per phase; plans persisted under `.orchestrator/`. *done_when:* identical inputs hash identically; each phase has a `done_when` criterion; tampering with a stored plan is detected on reload.
+**W2 — Expand/contract emitter (D9).** (L; S1, W1) `emitExpandContractPlan(input) → ExpandContractPlan` with hashed phases, artifact paths, and frozen criteria per phase; plans persisted under `.snaffle/`. *done_when:* identical inputs hash identically; each phase has a `done_when` criterion; tampering with a stored plan is detected on reload.
 
 **W3 — Expand/contract pipeline phases (D9, D25).** (M; W2, Phase-4 runner) Insert expand/contract phases into the **full** regime when W1 detects stateful change; minimal two-way regime unchanged. Each phase runs gate checks against phase artifacts before advancing. *done_when:* a stateful one-way integration test runs expand → … → contract before implement; a non-stateful one-way run skips them; phase failure routes via Phase-3 classifier, never merge.
 
@@ -436,7 +436,7 @@ Realizes deferred cut lines from Phases 2–6 and closes the OSS v1 operator loo
 
 **W4 — Durable budget ledger (D22; W11 carry).** (M; S4) Optional `[budget].persist = true` SQLite backing for `BudgetGovernorState`. *done_when:* restart survival test; disabled → in-memory unchanged.
 
-**W5 — Escape remediation emitter (D24).** (M; S3) `proposeEscapeRemediation(cluster, snapshot) → RemediationProposal`; persisted under `.orchestrator/`. *done_when:* cluster from W7 report produces proposal; tamper detected on reload.
+**W5 — Escape remediation emitter (D24).** (M; S3) `proposeEscapeRemediation(cluster, snapshot) → RemediationProposal`; persisted under `.snaffle/`. *done_when:* cluster from W7 report produces proposal; tamper detected on reload.
 
 **W6 — Remediation CLI (D24).** (S; W5) `snaffle escapes propose | apply-criteria` — surfaces proposals; apply-criteria updates frozen snapshot only through control-plane re-freeze path (never silent live-source edit). *done_when:* propose prints JSON; apply refuses stale snapshot.
 

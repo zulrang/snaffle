@@ -1,5 +1,5 @@
-# Copy this to .orchestrator/gate.toml for local dogfooding.
-# .orchestrator/ is runtime state and should stay untracked.
+# Copy this to .snaffle/gate.toml for local dogfooding.
+# .snaffle/ is runtime state and should stay untracked.
 
 tier = "full"
 repo_mode = "wrap"

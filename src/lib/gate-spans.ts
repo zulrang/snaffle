@@ -10,7 +10,7 @@ import { openSqliteDatabase, type SqliteDatabase } from "./sqlite";
  * lineage (and optional batch) for red attribution.
  */
 
-export const SPAN_DB_DIR = ".orchestrator";
+export const SPAN_DB_DIR = ".snaffle";
 export const SPAN_DB_FILE = "gate-spans.sqlite";
 
 export type GateSpanOutcome = "green" | "red" | "running";

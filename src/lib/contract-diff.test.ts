@@ -80,7 +80,7 @@ const writeSchema = Type.Object({
     const root = mkdtempSync(join(tmpdir(), "orchestrator-contract-"));
     writeFileSync(join(root, "api.ts"), baselineSource, "utf8");
     const baseline = captureContractBaseline([{ path: "api.ts", content: baselineSource }]);
-    saveContractBaseline(root, ".orchestrator/contract-baseline.json", baseline);
+    saveContractBaseline(root, ".snaffle/contract-baseline.json", baseline);
 
     writeFileSync(
       join(root, "api.ts"),

@@ -19,7 +19,7 @@ If no explicit no-side-effect mode exists yet, treat that as the first product g
 
 Stage zero is config. Set provider credentials for the live `pi-ai` provider, map the three tiers (`light`, `mid`, `heavy`) to real models, point the gate at `bun run check`, keep HITL sampling at 100%, and set tight budget caps for the first trust window. Keep `--owner` set so provenance attributes every run to you.
 
-The target repo reads `.orchestrator/gate.toml`, but `.orchestrator/` is gitignored runtime state. Keep the actual local file uncommitted. Start from `docs/dogfood-gate.example.toml` and copy it locally before running.
+The target repo reads `.snaffle/gate.toml`, but `.snaffle/` is gitignored runtime state. Keep the actual local file uncommitted. Start from `docs/dogfood-gate.example.toml` and copy it locally before running.
 
 Example starting point, with provider/model values replaced by the live model ids you intend to use:
 
@@ -183,7 +183,7 @@ Every dogfooded task should declare:
 
 If any of these are missing, Snaffle should ask rather than infer a broad scope from prose.
 
-For the current dogfood run path, use `bun run snaffle -- run --config-file docs/dogfood-gate.example.toml --task-file <path>` with a task file shaped like `docs/dogfood-task.example.json`. The temporary `scriptedWrites` field is intentionally explicit; remove it once task intake no longer needs a scripted expected write for deterministic warmups. With `[hitl].two_way_sample_rate = 1.0`, a green two-way run should park at `awaiting_human` and the CLI should exit `1`; confirm the durable item with `bun run snaffle -- decisions list`. Approval is authorization only: after `bun run snaffle -- decisions approve --lineage <id>`, run `bun run snaffle -- resume --lineage <id> --no-push` for the first trust window. Drop `--no-push` only when you intentionally want the locked continuation to commit and push, and add `--publish-pr` only when you intentionally want the continuation to call `gh pr create`. A PR publishing failure should write `.orchestrator/pr-failures/<lineage>.json` rather than pretending a PR exists.
+For the current dogfood run path, use `bun run snaffle -- run --config-file docs/dogfood-gate.example.toml --task-file <path>` with a task file shaped like `docs/dogfood-task.example.json`. The temporary `scriptedWrites` field is intentionally explicit; remove it once task intake no longer needs a scripted expected write for deterministic warmups. With `[hitl].two_way_sample_rate = 1.0`, a green two-way run should park at `awaiting_human` and the CLI should exit `1`; confirm the durable item with `bun run snaffle -- decisions list`. Approval is authorization only: after `bun run snaffle -- decisions approve --lineage <id>`, run `bun run snaffle -- resume --lineage <id> --no-push` for the first trust window. Drop `--no-push` only when you intentionally want the locked continuation to commit and push, and add `--publish-pr` only when you intentionally want the continuation to call `gh pr create`. A PR publishing failure should write `.snaffle/pr-failures/<lineage>.json` rather than pretending a PR exists.
 
 ## Operations Loop
 

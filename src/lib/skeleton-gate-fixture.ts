@@ -42,7 +42,7 @@ export const skeletonGateConfig = (): ProjectGateConfig => ({
   repoMode: "strict",
   stages: [{ kind: PHASE1_GATE_CHECK_KIND, command: ["bun", "test", SKELETON_GATE_FIXTURE_REL] }],
   contractPaths: [],
-  contractBaselineRel: ".orchestrator/contract-baseline.json",
-  gateBaselineRel: ".orchestrator/gate-baseline.json",
-  oracleFreezeRel: ".orchestrator/oracle-freeze.json",
+  contractBaselineRel: ".snaffle/contract-baseline.json",
+  gateBaselineRel: ".snaffle/gate-baseline.json",
+  oracleFreezeRel: ".snaffle/oracle-freeze.json",
 });
