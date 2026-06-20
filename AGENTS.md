@@ -2,6 +2,25 @@
 
 Snaffle is a deterministic agent delivery pipeline: an external control-plane **spine** over Pi agents. Gate before claiming done: `bun run check`
 
+## Routing code changes through Snaffle
+
+For any request to **change, add, fix, or refactor code in this repo**, do not edit
+repo files directly. Author a task file under `.orchestrator/tasks/<slug>.json`
+and run `bun run orchestrator -- run --task-file <path>`. Load the `snaffle`
+skill (`.pi/skills/snaffle/SKILL.md`) for the task-file schema, door hints, and
+reporting steps. Snaffle drives its own subagents in an isolated worktree under
+the single-writer lock; you are the task author, not the editor.
+
+Do not run `decisions approve` / `resume` unprompted — those are human
+authorization steps. Offer them when a run parks at `awaiting_human`.
+
+Self-editing hazard: changes touching gate/scope/oracle/door/transition/spine/
+pi/extensions/scripts/workflows/package.json are one-way and **must** park for
+human review. Never widen scope to avoid the queue (recursive grader capture).
+
+Reading, exploring, explaining code, and running `bun run check` manually are
+not code-change requests — handle those directly.
+
 ## Entry Points
 
 - Domain vocabulary: `src/domain/index.ts`
