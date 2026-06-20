@@ -10,22 +10,41 @@ Snaffle works with [Pi](https://pi.dev), a toolkit for running coding agents (pr
 
 ## What you need installed
 
-- **[Bun](https://bun.com)** version 1.3 or newer — used to run Snaffle while you develop
-- **Node.js** version 22 or newer — used to check that Snaffle also works in production-like setups (`npm run check:node`)
+- **Node.js** version 22 or newer — ship target for the `snaffle` CLI and `npm run setup`
+- **[Bun](https://bun.com)** version 1.3 or newer (optional) — faster local dev (`bun run check`, `bun run snaffle`)
 - **Git** — tracks code history; Snaffle uses separate Git workspaces so tests do not mess up your main copy
 - Snaffle depends on Pi packages pinned in `package.json` (`@earendil-works/*@0.74.0`)
 
 ## Install
 
+One-shot setup (dependencies, global `snaffle` CLI, Pi + Cursor routing skills):
+
 ```bash
-bun install
-bun run check    # runs type checks, lint, guards, and all tests
+npm run setup          # Node only (npm install + npm link)
+bun run setup          # uses Bun when available, else falls back to npm
 ```
 
-Run Snaffle from this folder:
+Force a runtime:
 
 ```bash
-bun run snaffle -- <command> [options]
+npm run setup -- --node    # npm install + npm link (no Bun required)
+bun run setup -- --bun     # bun install + bun link
+```
+
+Add `--global` to also copy the routing skill into your home Pi/Cursor skill directories (`~/.pi/agent/skills/snaffle`, `~/.cursor/skills/snaffle`). Use `--skip-link` if you only want skills without linking the global CLI.
+
+Verify everything:
+
+```bash
+bun run check    # runs type checks, lint, guards, and all tests (Bun dev path)
+snaffle status --repo .
+```
+
+Run Snaffle from this folder without a global link:
+
+```bash
+bun run snaffle -- <command> [options]   # dev
+node bin/snaffle.mjs <command> [options] # Node ship path
 ```
 
 ## Commands (CLI)
