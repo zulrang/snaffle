@@ -9,6 +9,7 @@ import { snapshotAcceptanceTarget } from "../lib/acceptance-snapshot";
 import type { DecisionReviewContext } from "../lib/decision-queue";
 import { DECISION_DB_DIR, DECISION_DB_FILE, openDecisionQueueStore } from "../lib/decision-queue";
 import { type DogfoodTask, dogfoodTaskPrompt, parseDogfoodTask } from "../lib/dogfood-task";
+import { classifyDoor } from "../lib/door-classifier";
 import { type ProjectGateConfig, parseGateToml } from "../lib/gate-config";
 import type { OrchestratorConfig } from "../lib/orchestrator-config";
 import {
@@ -43,7 +44,8 @@ export interface RegimeRunInput {
 interface RegimeRunSpec {
   readonly lineage: ReturnType<typeof makeLineage>;
   readonly coverage: { readonly kind: "reuse"; readonly coveredCriteria: readonly string[] };
-  readonly tasks: { readonly implement: PhaseTask };
+  readonly tasks: Partial<Record<"spec" | "plan" | "oracle_authoring" | "implement", PhaseTask>>;
+  readonly oraclePaths?: readonly string[];
   readonly decisionReview: DecisionReviewContext;
   readonly ids: {
     readonly invocationBase: string;
@@ -174,6 +176,7 @@ const loadRunGateConfig = (
 const buildTaskRunSpec = (
   task: DogfoodTask,
   ts: Timestamp,
+  config: OrchestratorConfig,
 ): Result<RegimeRunSpec, RegimeRunError> => {
   const paths: RepoPath[] = [];
   for (const path of task.scope) {
@@ -188,6 +191,10 @@ const buildTaskRunSpec = (
     const parsed = parseRepoPath(write.path);
     if (!parsed.ok)
       return err({ kind: "task_invalid", detail: `invalid write path: ${write.path}` });
+  }
+  const firstWrite = task.scriptedWrites[0];
+  if (firstWrite === undefined) {
+    return err({ kind: "task_invalid", detail: "scriptedWrites must not be empty" });
   }
 
   const suffix = String(ts);
@@ -215,22 +222,92 @@ const buildTaskRunSpec = (
     return err({ kind: "task_invalid", detail: JSON.stringify(acceptanceTarget.error) });
   }
 
+  const door = classifyDoor(scope.value, undefined, config.door);
+  const specContent = "// dogfood spec phase evidence; not applied by the spine\n";
+  const specTask: PhaseTask = {
+    prompt: [
+      "Record a tiny dogfood spec artifact.",
+      "",
+      "Call scoped_write exactly once for the requested write:",
+      `path: ${firstWrite.path}`,
+      "content:",
+      specContent,
+      "The spine records this phase evidence but does not apply it to the worktree.",
+    ].join("\n"),
+    writes: [
+      {
+        path: firstWrite.path,
+        content: specContent,
+      },
+    ],
+  };
+  const planContent = "// dogfood plan phase evidence; not applied by the spine\n";
+  const planTask: PhaseTask = {
+    prompt: [
+      "Record a tiny dogfood plan artifact.",
+      "",
+      "Call scoped_write exactly once for the requested write:",
+      `path: ${firstWrite.path}`,
+      "content:",
+      planContent,
+      "The spine records this phase evidence but does not apply it to the worktree.",
+    ].join("\n"),
+    writes: [
+      {
+        path: firstWrite.path,
+        content: planContent,
+      },
+    ],
+  };
+  const oraclePath = `src/lib/dogfood-oracle-${suffix}.test.ts`;
+  const oracleContent = [
+    'import { describe, expect, test } from "bun:test";',
+    "",
+    'describe("dogfood one-way oracle", () => {',
+    '  test("acceptance criteria are frozen", () => {',
+    `    expect(${task.acceptanceCriteria.length}).toBeGreaterThan(0);`,
+    "  });",
+    "});",
+    "",
+  ].join("\n");
+  const oracleTask: PhaseTask = {
+    prompt: [
+      "Author the frozen acceptance oracle for this one-way dogfood task.",
+      "",
+      "Call scoped_write exactly once with the requested oracle file:",
+      `path: ${oraclePath}`,
+      "content:",
+      oracleContent,
+      "The oracle should stay small and deterministic.",
+    ].join("\n"),
+    writes: [
+      {
+        path: oraclePath,
+        content: oracleContent,
+      },
+    ],
+  };
+
   return ok({
     lineage: makeLineage({
       lineageId: lineageId.value,
       requirementId: requirementId.value,
-      door: classifyTwoWay(),
+      door,
       acceptanceTarget: acceptanceTarget.value,
       declaredScope: scope.value,
       createdAt: ts,
     }),
     coverage: { kind: "reuse", coveredCriteria: criteria.map((criterion) => criterion.id) },
     tasks: {
+      ...(door.direction === "one_way"
+        ? { spec: specTask, plan: planTask, oracle_authoring: oracleTask }
+        : {}),
       implement: {
         prompt: dogfoodTaskPrompt(task),
         writes: task.scriptedWrites,
       },
     },
+    ...(door.direction === "one_way" ? { oraclePaths: [oraclePath] } : {}),
     decisionReview: {
       summary: task.goal,
       scope: task.scope,
@@ -251,13 +328,16 @@ export const runRegimeLineage = async (
   const ts = parseTimestamp(Date.now());
   if (!ts.ok) return err({ kind: "invalid_default" });
 
+  const config = loadRunConfig(input.repoRoot, input.configFile);
+  if (!config.ok) return config;
+
   const spec =
     input.taskFile === undefined
       ? buildDefaultRunSpec(ts.value)
       : (() => {
           const task = loadTaskFile(input.repoRoot, input.taskFile);
           if (!task.ok) return task;
-          return buildTaskRunSpec(task.value, ts.value);
+          return buildTaskRunSpec(task.value, ts.value, config.value);
         })();
   if (!spec.ok) return spec;
 
@@ -271,8 +351,6 @@ export const runRegimeLineage = async (
     join(input.repoRoot, DECISION_DB_DIR, DECISION_DB_FILE),
   );
   try {
-    const config = loadRunConfig(input.repoRoot, input.configFile);
-    if (!config.ok) return config;
     const gateConfig = loadRunGateConfig(input.repoRoot, input.configFile);
     if (!gateConfig.ok) return gateConfig;
 
@@ -284,6 +362,7 @@ export const runRegimeLineage = async (
       config: config.value,
       coverage: spec.value.coverage,
       tasks: spec.value.tasks,
+      ...(spec.value.oraclePaths === undefined ? {} : { oraclePaths: spec.value.oraclePaths }),
       ids: spec.value.ids,
       decisionQueue,
       decisionId: spec.value.ids.decisionId,

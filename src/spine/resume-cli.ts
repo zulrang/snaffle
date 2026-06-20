@@ -9,8 +9,16 @@ import {
   type DecisionItem,
   openDecisionQueueStore,
 } from "../lib/decision-queue";
+import { createGhPrClient, defaultGhExec } from "../lib/gh-pr-adapter";
 import { acquireWriterLock } from "../lib/ownership-lock";
 import { loadParkedChangeArtifact, type ParkedChangeArtifact } from "../lib/parked-change-store";
+import {
+  enqueuePrFailure,
+  type PrClient,
+  type PrSource,
+  type PublishPrResult,
+  publishPr,
+} from "../lib/pr-adapter";
 import { type SpawnResult, spawnCommand } from "../lib/spawn";
 import { createDetachedWorktree } from "../lib/worktree";
 import { applyWritesToWorktree } from "../lib/worktree-writes";
@@ -49,6 +57,7 @@ export type ResumeLineageOutcome =
       readonly postGate: GateReport;
       readonly artifactHash: string;
       readonly vcs: VcsContinuationOutcome;
+      readonly pr?: PublishPrResult;
     }
   | {
       readonly kind: "validated_no_push";
@@ -103,10 +112,49 @@ const noPushVcsContinuation: VcsContinuation = {
   },
 };
 
+const prSourceFor = (
+  lineageId: LineageId,
+  item: DecisionItem,
+  artifact: ParkedChangeArtifact,
+): PrSource => ({
+  lineageId: String(lineageId),
+  summary: item.review?.summary ?? `Resume ${lineageId}`,
+  regime: artifact.plan.regime,
+  planHash: String(artifact.artifactHash),
+  contextHash: String(artifact.artifactHash),
+  generationId: `gen-${lineageId}`,
+});
+
+const publishResumePr = async (input: {
+  readonly repoRoot: string;
+  readonly lineageId: LineageId;
+  readonly item: DecisionItem;
+  readonly artifact: ParkedChangeArtifact;
+  readonly client: PrClient;
+}): Promise<
+  Result<PublishPrResult | undefined, { readonly kind: "queue_error"; readonly detail: string }>
+> => {
+  const source = prSourceFor(input.lineageId, input.item, input.artifact);
+  const published = await publishPr(source, input.client);
+  if (!published.ok) return ok(undefined);
+  if (published.value.kind === "degraded_to_queue") {
+    const queued = enqueuePrFailure(input.repoRoot, source, published.value, Date.now());
+    if (!queued.ok) {
+      return err({ kind: "queue_error", detail: JSON.stringify(queued.error) });
+    }
+  }
+  return ok(published.value);
+};
+
 export const resumeApprovedLineage = async (
   repoRoot: string,
   rawLineageId: string,
-  options: { readonly vcs?: VcsContinuation; readonly noPush?: boolean } = {},
+  options: {
+    readonly vcs?: VcsContinuation;
+    readonly noPush?: boolean;
+    readonly publishPr?: boolean;
+    readonly prClient?: PrClient;
+  } = {},
 ): Promise<Result<ResumeLineageOutcome, ResumeLineageError>> => {
   const lineageId = LineageId(rawLineageId);
   if (!lineageId.ok) return err({ kind: "invalid_lineage", detail: rawLineageId });
@@ -228,6 +276,18 @@ export const resumeApprovedLineage = async (
           return ok({ kind: "reparked", reason: "merge_failed", item: reparked.value });
         }
 
+        const pr =
+          options.publishPr === true
+            ? await publishResumePr({
+                repoRoot,
+                lineageId: lineageId.value,
+                item: item.value,
+                artifact: artifact.value,
+                client: options.prClient ?? createGhPrClient(defaultGhExec(repoRoot)),
+              })
+            : ok(undefined);
+        if (!pr.ok) return err({ kind: "queue_error", detail: JSON.stringify(pr.error) });
+
         const transition: StateTransition = {
           transitionId: transitionId.value,
           lineageId: lineageId.value,
@@ -243,6 +303,7 @@ export const resumeApprovedLineage = async (
           postGate,
           artifactHash: String(artifact.value.artifactHash),
           vcs: vcs.value,
+          ...(pr.value === undefined ? {} : { pr: pr.value }),
         });
       } finally {
         await continuationWorktree.value.remove();

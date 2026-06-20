@@ -119,6 +119,8 @@ export interface StubInvocationOptions {
   readonly fauxRegistration?: FauxProviderRegistration;
   /** Execute against the configured live provider instead of the deterministic faux queue. */
   readonly invocationMode?: "faux" | "live";
+  /** Bounds prompt + tool execution; defaults on for live calls and off for faux calls. */
+  readonly invocationTimeoutMs?: number;
 }
 
 export interface StubInvocationError {
@@ -128,6 +130,22 @@ export interface StubInvocationError {
 
 const PI_AGENT_CORE_VERSION = "0.74.0";
 const PI_AI_VERSION = "0.74.0";
+const DEFAULT_LIVE_INVOCATION_TIMEOUT_MS = 90_000;
+
+export const resolveInvocationTimeoutMs = (
+  invocationMode: "faux" | "live",
+  env: Record<string, string | undefined> & {
+    readonly SNAFFLE_AGENT_TIMEOUT_MS?: string;
+  } = process.env,
+): number | undefined => {
+  const raw = env.SNAFFLE_AGENT_TIMEOUT_MS;
+  if (raw !== undefined) {
+    const parsed = Number(raw);
+    if (parsed === 0) return undefined;
+    if (Number.isFinite(parsed) && parsed > 0) return Math.trunc(parsed);
+  }
+  return invocationMode === "live" ? DEFAULT_LIVE_INVOCATION_TIMEOUT_MS : undefined;
+};
 
 const createDefaultFauxRegistration = (): FauxProviderRegistration =>
   registerFauxProvider({
@@ -180,6 +198,51 @@ const resolveLiveModel = (
 const createLiveAuthStorage = (): AuthStorage => {
   const { SNAFFLE_PI_AUTH_JSON } = process.env;
   return AuthStorage.create(SNAFFLE_PI_AUTH_JSON);
+};
+
+interface RunnableAgent {
+  prompt(prompt: string): Promise<unknown>;
+  waitForIdle(): Promise<unknown>;
+  abort(): void;
+}
+
+const runPromptToIdle = async (
+  agent: RunnableAgent,
+  prompt: string,
+  timeoutMs: number | undefined,
+): Promise<Result<void, StubInvocationError>> => {
+  const run = (async () => {
+    await agent.prompt(prompt);
+    await agent.waitForIdle();
+  })();
+
+  const completed = run
+    .then(() => ok(undefined))
+    .catch((error) =>
+      err({
+        kind: "agent_error" as const,
+        detail: error instanceof Error ? error.message : String(error),
+      }),
+    );
+
+  if (timeoutMs === undefined) return completed;
+
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<Result<void, StubInvocationError>>((resolve) => {
+    timeout = setTimeout(() => {
+      agent.abort();
+      resolve(
+        err({
+          kind: "agent_error",
+          detail: `agent invocation timed out after ${timeoutMs}ms`,
+        }),
+      );
+    }, timeoutMs);
+  });
+
+  const result = await Promise.race([completed, timedOut]);
+  if (timeout !== undefined) clearTimeout(timeout);
+  return result;
 };
 
 const createScopedWriteTool = (
@@ -265,6 +328,8 @@ const runStubAgent = async (
       ? createBeforeToolCallGuard(options.scope, options.workspaceRoot, options.oracleFreeze)
       : undefined;
     const streamFn = options.promptCache ? createCachedStreamFn(options.promptCache) : streamSimple;
+    const invocationTimeoutMs =
+      options.invocationTimeoutMs ?? resolveInvocationTimeoutMs(invocationMode);
 
     const agent = new Agent({
       initialState: {
@@ -325,8 +390,8 @@ const runStubAgent = async (
       }
     });
 
-    await agent.prompt(task.prompt);
-    await agent.waitForIdle();
+    const completed = await runPromptToIdle(agent, task.prompt, invocationTimeoutMs);
+    if (!completed.ok) return completed;
 
     const status: AgentOutcome =
       scopeDenials.length > 0

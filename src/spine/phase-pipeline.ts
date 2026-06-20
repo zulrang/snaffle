@@ -330,7 +330,7 @@ export const runLineagePipeline = async (
   let budget = createBudgetGovernor();
   let oracleFreeze: OracleFreezeRecord | undefined;
   let implementResult: AgentResult | undefined;
-  let implementWrites: readonly CapturedWrite[] = [];
+  let parkedWrites: readonly CapturedWrite[] = [];
   const frozenAt = input.frozenAt ?? 1;
   const cacheHint = input.cacheHint;
 
@@ -428,6 +428,7 @@ export const runLineagePipeline = async (
         return err({ kind: "oracle_authoring", detail: JSON.stringify(authored.error) });
       }
       oracleFreeze = authored.value.freeze;
+      parkedWrites = [...parkedWrites, ...authored.value.writes];
       phases.push({ phase, agentKind: "test_author", outcome: authored.value.agentResult.outcome });
 
       const advanced = advanceBudget(budget, input.repoRoot, 0);
@@ -483,7 +484,7 @@ export const runLineagePipeline = async (
         return err({ kind: "worktree_apply", detail: JSON.stringify(applied.error) });
 
       implementResult = validated.value;
-      implementWrites = invoked.value.writes;
+      parkedWrites = [...parkedWrites, ...invoked.value.writes];
 
       const logged = logImplementerProvenance({
         pipeline: input,
@@ -564,8 +565,8 @@ export const runLineagePipeline = async (
           const parked = enqueueHumanDecision(
             input,
             "two_way_sample",
-            reviewWithWrites(input.decisionReview, implementWrites),
-            implementWrites,
+            reviewWithWrites(input.decisionReview, parkedWrites),
+            parkedWrites,
           );
           if (!parked.ok) return parked;
           return ok({
@@ -583,8 +584,8 @@ export const runLineagePipeline = async (
         const parked = enqueueHumanDecision(
           input,
           "merge_hold",
-          reviewWithWrites(input.decisionReview, implementWrites),
-          implementWrites,
+          reviewWithWrites(input.decisionReview, parkedWrites),
+          parkedWrites,
         );
         if (!parked.ok) return parked;
         return ok({

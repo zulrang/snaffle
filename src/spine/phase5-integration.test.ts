@@ -28,6 +28,7 @@ import {
 } from "../lib/decision-queue";
 import { defaultOrchestratorConfig } from "../lib/orchestrator-config";
 import { OWNERSHIP_LOCK_DIR, OWNERSHIP_LOCK_FILE, readWriterClaim } from "../lib/ownership-lock";
+import { loadParkedChangeArtifact } from "../lib/parked-change-store";
 import { skeletonGateConfig, writePassingGateFixture } from "../lib/skeleton-gate-fixture";
 import { shouldSampleTwoWayMerge } from "../lib/two-way-sampler";
 import { type PreparedWorktreeGate, prepareWorktreeGate } from "./gate-invocation";
@@ -240,6 +241,12 @@ describe("W9 — spine concurrency integration (Phase 5)", () => {
     const item = must(store.getByLineageId(lineage.lineageId));
     expect(item?.kind).toBe("merge_hold");
     expect(item?.parkedChangeHash).toMatch(/^[0-9a-f]{64}$/);
+    if (item?.parkedChangeHash === undefined) throw new Error("missing parked change hash");
+    const artifact = must(loadParkedChangeArtifact(gate.worktreeRoot, item.parkedChangeHash));
+    expect(artifact.writes.map((write) => write.path)).toEqual([
+      `tests/w9-${suffix}.oracle.test.ts`,
+      "src/lib/w9-oneway.ts",
+    ]);
 
     const approved = must(
       store.recordDecision({

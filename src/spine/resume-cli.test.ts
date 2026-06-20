@@ -10,6 +10,7 @@ import { DECISION_DB_DIR, DECISION_DB_FILE, openDecisionQueueStore } from "../li
 import { defaultPhase1GateConfig } from "../lib/gate-config";
 import { defaultOrchestratorConfig } from "../lib/orchestrator-config";
 import { writeParkedChangeArtifact } from "../lib/parked-change-store";
+import { PR_FAILURE_QUEUE_DIR, type PrClient } from "../lib/pr-adapter";
 import { resumeApprovedLineage } from "./resume-cli";
 
 const must = <T>(result: { ok: boolean; value?: T; error?: unknown }): T => {
@@ -201,5 +202,90 @@ describe("resume approved lineage", () => {
     expect(resumed.reason).toBe("missing_artifact");
     expect(resumed.item.decision).toBeUndefined();
     expect(resumed.item.approvedChangeHash).toBeUndefined();
+  });
+
+  test("PR publish failure degrades to a durable local queue", async () => {
+    workspace = mkdtempSync(join(tmpdir(), "snaffle-resume-pr-fail-"));
+    initGitWorkspace(workspace);
+    const ts = must(parseTimestamp(1_700_000_000_000));
+    const lineageId = must(LineageId("lineage-pr-fail"));
+    const decisionId = must(DecisionId("dec-pr-fail"));
+    const artifact = must(
+      writeParkedChangeArtifact(workspace, {
+        lineageId,
+        plan: { regime: "minimal", phases: ["implement", "validate"], terminal: "auto_merge" },
+        config: defaultOrchestratorConfig(),
+        gateConfig: {
+          ...defaultPhase1GateConfig(),
+          stages: [
+            {
+              kind: "full_tests",
+              command: ["sh", "-c", "test -f pr.txt"],
+            },
+          ],
+        },
+        scope: ["pr.txt"],
+        writes: [{ path: "pr.txt", content: "pr\n" }],
+        createdAt: ts,
+      }),
+    );
+
+    const store = openDecisionQueueStore(join(workspace, DECISION_DB_DIR, DECISION_DB_FILE));
+    must(
+      store.enqueue({
+        decisionId,
+        lineageId,
+        kind: "two_way_sample",
+        door: { direction: "two_way" },
+        review: {
+          summary: "Open a PR for this resumed change",
+          scope: ["pr.txt"],
+          acceptanceCriteria: ["gate remains green"],
+        },
+        enqueuedAt: ts,
+        parkedChangeHash: String(artifact.artifactHash),
+      }),
+    );
+    must(
+      store.recordDecision({
+        decisionId,
+        decision: "approve",
+        currentState: { status: "awaiting_human" },
+        decidedAt: ts,
+      }),
+    );
+    store.close();
+
+    const failingPr: PrClient = {
+      open: async () => {
+        throw new Error("gh: not authenticated");
+      },
+    };
+    const resumed = must(
+      await resumeApprovedLineage(workspace, String(lineageId), {
+        vcs: {
+          commitAndPush: async () => ({ ok: true, value: { kind: "committed_and_pushed" } }),
+        },
+        publishPr: true,
+        prClient: failingPr,
+      }),
+    );
+
+    expect(resumed.kind).toBe("merged");
+    if (resumed.kind !== "merged") throw new Error("expected merged");
+    expect(resumed.pr).toEqual({
+      kind: "degraded_to_queue",
+      detail: "gh: not authenticated",
+    });
+    const queuedPath = join(workspace, PR_FAILURE_QUEUE_DIR, `${lineageId}.json`);
+    expect(existsSync(queuedPath)).toBe(true);
+    const queued = JSON.parse(readFileSync(queuedPath, "utf8")) as {
+      readonly source: { readonly summary: string };
+      readonly payload: { readonly branch: string };
+      readonly detail: string;
+    };
+    expect(queued.source.summary).toBe("Open a PR for this resumed change");
+    expect(queued.payload.branch).toBe(`snaffle/${lineageId}`);
+    expect(queued.detail).toBe("gh: not authenticated");
   });
 });

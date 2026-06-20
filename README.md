@@ -82,7 +82,7 @@ That file can define:
 
 If a section is missing, Snaffle uses built-in defaults.
 
-While Snaffle runs, it also writes files under `.orchestrator/` (this folder is ignored by Git). That includes locks, history, frozen plans, snapshots, and decision queues.
+While Snaffle runs, it also writes files under `.orchestrator/` (this folder is ignored by Git). That includes locks, history, frozen plans, snapshots, decision queues, and PR failure queue items.
 
 A small config might look like this:
 
@@ -103,7 +103,7 @@ More examples live in `src/lib/orchestrator-config.test.ts`.
 
 **Optional live integrations** (turned on by config and environment variables; not used in default CI):
 
-- **Pull requests:** set up the PR adapter and `GH_TOKEN` for live GitHub mode
+- **Pull requests:** use `resume --publish-pr` after approval; failed `gh pr create` attempts degrade to `.orchestrator/pr-failures/`
 - **Rollout webhooks:** set `[rollout]` with `adapter = "live"` and a webhook URL
 - **Real AI models:** set `SNAFFLE_LIVE_MODEL=1` for a smoke test with live models
 
@@ -115,7 +115,7 @@ More examples live in `src/lib/orchestrator-config.test.ts`.
 4. **Gate** — Automated checks run before and after agent work. If the final checks fail, nothing merges.
 5. **Park or continue** — Snaffle decides the next step from check results and door rules. Some changes pause and wait for a human.
 6. **Approve** — A human approves the paused work. Approval does not merge or push by itself.
-7. **Resume** — `resume --lineage <id>` runs final checks on the approved work, then commits and pushes. Use `--no-push` to validate without changing Git history.
+7. **Resume** — `resume --lineage <id>` runs final checks on the approved work, then commits and pushes. Use `--no-push` to validate without changing Git history, or `--publish-pr` to open a GitHub PR after the push.
 8. **Observe** — Snaffle keeps logs, check timings, escape reports, and optional post-merge safety checks.
 
 **Lineage** is Snaffle’s ID for one tracked run through this flow.

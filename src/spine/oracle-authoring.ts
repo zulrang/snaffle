@@ -10,6 +10,7 @@ import {
 } from "../lib/oracle-freeze";
 import type { OrchestratorConfig } from "../lib/orchestrator-config";
 import { applyWritesToWorktree } from "../lib/worktree-writes";
+import type { CapturedWrite } from "../pi/invoke-stub-agent";
 import type { PromptCacheHint } from "../pi/prompt-cache";
 import { type AgentInvocationError, invokeAgent } from "./invoke-agent";
 import type { ScopedWriteAttempt, ScopeEvent } from "./scoped-invocation";
@@ -42,6 +43,7 @@ export interface OracleAuthoringOutcome {
   readonly agentResult: AgentResult;
   readonly freeze: OracleFreezeRecord;
   readonly scopeEvents: readonly ScopeEvent[];
+  readonly writes: readonly CapturedWrite[];
 }
 
 export type OracleAuthoringError =
@@ -97,5 +99,6 @@ export const runOracleAuthoringPhase = async (
     agentResult: authored.value.agentResult,
     freeze: freeze.value,
     scopeEvents: authored.value.scopeEvents,
+    writes: authored.value.writes,
   });
 };
