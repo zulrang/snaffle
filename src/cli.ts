@@ -237,7 +237,7 @@ const main = async (): Promise<number> => {
       return 2;
     }
     console.log(JSON.stringify({ ok: true, outcome: resumed.value }, null, 2));
-    return resumed.value.kind === "merged" ? 0 : 1;
+    return resumed.value.kind === "reparked" ? 1 : 0;
   }
 
   if (parsed.command === "escapes") {

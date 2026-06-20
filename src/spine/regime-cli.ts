@@ -9,6 +9,7 @@ import { snapshotAcceptanceTarget } from "../lib/acceptance-snapshot";
 import type { DecisionReviewContext } from "../lib/decision-queue";
 import { DECISION_DB_DIR, DECISION_DB_FILE, openDecisionQueueStore } from "../lib/decision-queue";
 import { type DogfoodTask, dogfoodTaskPrompt, parseDogfoodTask } from "../lib/dogfood-task";
+import { type ProjectGateConfig, parseGateToml } from "../lib/gate-config";
 import type { OrchestratorConfig } from "../lib/orchestrator-config";
 import {
   defaultOrchestratorConfig,
@@ -149,6 +150,27 @@ const loadRunConfig = (
   }
 };
 
+const loadRunGateConfig = (
+  repoRoot: string,
+  configFile: string | undefined,
+): Result<ProjectGateConfig, RegimeRunError> => {
+  if (configFile === undefined) return ok(skeletonGateConfig());
+
+  try {
+    const raw = readFileSync(resolve(repoRoot, configFile), "utf8");
+    const parsed = parseGateToml(raw);
+    if (!parsed.ok) {
+      return err({ kind: "config_invalid", detail: JSON.stringify(parsed.error) });
+    }
+    return ok(parsed.value);
+  } catch (error) {
+    return err({
+      kind: "config_read",
+      detail: error instanceof Error ? error.message : String(error),
+    });
+  }
+};
+
 const buildTaskRunSpec = (
   task: DogfoodTask,
   ts: Timestamp,
@@ -242,18 +264,22 @@ export const runRegimeLineage = async (
   const prepared = await prepareWorktreeGate(input.repoRoot);
   if (!prepared.ok) return err({ kind: "worktree_prepare", detail: prepared.error.kind });
 
-  writePassingGateFixture(prepared.value.worktreeRoot);
+  if (input.configFile === undefined) {
+    writePassingGateFixture(prepared.value.worktreeRoot);
+  }
   const decisionQueue = openDecisionQueueStore(
     join(input.repoRoot, DECISION_DB_DIR, DECISION_DB_FILE),
   );
   try {
     const config = loadRunConfig(input.repoRoot, input.configFile);
     if (!config.ok) return config;
+    const gateConfig = loadRunGateConfig(input.repoRoot, input.configFile);
+    if (!gateConfig.ok) return gateConfig;
 
     const outcome = await runLineageForRegime({
       repoRoot: input.repoRoot,
       runtimeRoot: input.repoRoot,
-      gate: { worktreeRoot: prepared.value.worktreeRoot, config: skeletonGateConfig() },
+      gate: { worktreeRoot: prepared.value.worktreeRoot, config: gateConfig.value },
       lineage: spec.value.lineage,
       config: config.value,
       coverage: spec.value.coverage,

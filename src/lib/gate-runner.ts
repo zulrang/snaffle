@@ -77,8 +77,22 @@ export type PreGateBlockedError = {
 /** ponytail: snapshot env once per process so PRE/POST gate runs see identical env. */
 let cachedGateEnv: Record<string, string | undefined> | undefined;
 
+export const sanitizeGateEnv = (
+  env: Record<string, string | undefined>,
+): Record<string, string | undefined> => {
+  const sanitized: Record<string, string | undefined> & { SNAFFLE_LIVE_MODEL?: string } = {
+    ...env,
+  };
+  // The live-model switch belongs to the orchestrator invocation, not the
+  // deterministic gate; otherwise ordinary tests try to call live providers.
+  delete sanitized.SNAFFLE_LIVE_MODEL;
+  return sanitized;
+};
+
 const gateRunEnv = (): Record<string, string | undefined> => {
-  cachedGateEnv ??= { ...process.env };
+  if (cachedGateEnv === undefined) {
+    cachedGateEnv = sanitizeGateEnv(process.env);
+  }
   return cachedGateEnv;
 };
 

@@ -61,13 +61,13 @@ bun run orchestrator -- resume --lineage lineage-abc --no-push
 
 Snaffle reads project config from `.orchestrator/gate.toml` in the target repo. Gate stages, door taxonomy, model tiers, budget limits, HITL sampling, rollout, and governance all live in this file (or fall back to documented defaults when sections are absent).
 
-Runtime state is written under `.orchestrator/` (gitignored): ownership lock, provenance SQLite, frozen execution plan, acceptance snapshots, decision queue, gate baselines, and oracle freeze records.
+Runtime state is written under `.orchestrator/` (gitignored): ownership lock, provenance SQLite, frozen execution plan, acceptance snapshots, parked-change artifacts, decision queue, gate baselines, and oracle freeze records.
 
 A minimal gate config might declare tier, repo mode, and stages:
 
 ```toml
 tier = "full"
-repoMode = "strict"
+repo_mode = "strict"
 
 [[stages]]
 kind = "lint"
@@ -92,10 +92,12 @@ Optional sections include `[door]`, `[tiers]`, `[budget]`, `[hitl]`, `[rollout]`
 2. **Plan** — Compile and freeze the execution plan; refuse start if config drifts after freeze.
 3. **Execute** — Run the regime-appropriate agent pipeline in an isolated worktree with per-invocation scope grants.
 4. **Gate** — PRE and POST run the same deterministic multi-stage gate; POST red never merges.
-5. **Decide** — The control plane derives transitions from gate evidence and door class; one-way changes park for human approval.
-6. **Observe** — Provenance, gate spans, oracle escapes, and optional post-merge rollout guardrails.
+5. **Park or continue** — The control plane derives the next state from gate evidence and door policy; one-way changes and sampled two-way changes park with a content-addressed artifact.
+6. **Approve** — Human approval authorizes the parked artifact hash; it does not merge or push.
+7. **Resume** — `resume --lineage <id>` reruns POST gate from the parked artifact and only then commits/pushes; `--no-push` validates the continuation without mutating git history.
+8. **Observe** — Provenance, gate spans, oracle escapes, and optional post-merge rollout guardrails.
 
-Two-way changes on the minimal regime can auto-merge on a green gate. One-way changes always require an explicit human decision — draining the queue is not completion.
+Two-way changes on the minimal regime can continue on a green gate unless sampled for HITL. One-way changes always require an explicit human decision. Draining the queue is not completion; merge is derived by the continuation step.
 
 ## Repository layout
 

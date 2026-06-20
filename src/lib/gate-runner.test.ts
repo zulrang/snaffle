@@ -14,6 +14,7 @@ import {
   runDeterministicGate,
   runPostGate,
   runPreGate,
+  sanitizeGateEnv,
 } from "./gate-runner";
 
 const must = <T>(result: { ok: boolean; value?: T; error?: unknown }): T => {
@@ -47,6 +48,20 @@ describe("gate config", () => {
     expect(loaded.stages[0]?.kind).toBe("full_tests");
 
     rmSync(root, { recursive: true, force: true });
+  });
+});
+
+describe("gate command environment", () => {
+  test("scrubs the orchestrator live-model switch from deterministic gates", () => {
+    const env = sanitizeGateEnv({
+      PATH: "/bin",
+      SNAFFLE_LIVE_MODEL: "1",
+      SNAFFLE_PI_AUTH_JSON: "/tmp/auth.json",
+    });
+    expect(env).toEqual({
+      PATH: "/bin",
+      SNAFFLE_PI_AUTH_JSON: "/tmp/auth.json",
+    });
   });
 });
 

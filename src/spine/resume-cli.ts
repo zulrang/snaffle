@@ -12,6 +12,7 @@ import {
 import { acquireWriterLock } from "../lib/ownership-lock";
 import { loadParkedChangeArtifact, type ParkedChangeArtifact } from "../lib/parked-change-store";
 import { type SpawnResult, spawnCommand } from "../lib/spawn";
+import { createDetachedWorktree } from "../lib/worktree";
 import { applyWritesToWorktree } from "../lib/worktree-writes";
 import { runPostGateInWorktree } from "./gate-invocation";
 
@@ -141,8 +142,8 @@ export const resumeApprovedLineage = async (
     const locked = await acquireWriterLock({ workspaceRoot: repoRoot });
     if (!locked.ok) return err({ kind: "workspace_lock", detail: locked.error.kind });
     try {
-      const applied = applyWritesToWorktree(repoRoot, artifact.value.writes);
-      if (!applied.ok) {
+      const continuationWorktree = await createDetachedWorktree(repoRoot);
+      if (!continuationWorktree.ok) {
         const reparked = store.repark({ decisionId: item.value.decisionId });
         if (!reparked.ok) {
           return err({ kind: "queue_error", detail: JSON.stringify(reparked.error) });
@@ -150,67 +151,102 @@ export const resumeApprovedLineage = async (
         return ok({ kind: "reparked", reason: "merge_failed", item: reparked.value });
       }
 
-      const at = parseTimestamp(Date.now());
-      if (!at.ok) return err({ kind: "queue_error", detail: "invalid timestamp" });
-      const suffix = `${lineageId.value}-${at.value}`;
-      const gateRunId = GateRunId(`gate-resume-${suffix}-post`);
-      const transitionId = TransitionId(`tr-resume-${suffix}`);
-      if (!gateRunId.ok || !transitionId.ok) {
-        return err({ kind: "queue_error", detail: "invalid resume ids" });
-      }
-
-      const postGate = await runPostGateInWorktree(
-        { worktreeRoot: repoRoot, config: artifact.value.gateConfig },
-        { gateRunId: gateRunId.value, lineageId: lineageId.value },
-      );
-      if (!gatePassed(postGate)) {
-        const reparked = store.repark({ decisionId: item.value.decisionId });
-        if (!reparked.ok) {
-          return err({ kind: "queue_error", detail: JSON.stringify(reparked.error) });
+      try {
+        const applied = applyWritesToWorktree(
+          continuationWorktree.value.root,
+          artifact.value.writes,
+        );
+        if (!applied.ok) {
+          const reparked = store.repark({ decisionId: item.value.decisionId });
+          if (!reparked.ok) {
+            return err({ kind: "queue_error", detail: JSON.stringify(reparked.error) });
+          }
+          return ok({ kind: "reparked", reason: "merge_failed", item: reparked.value });
         }
-        return ok({ kind: "reparked", reason: "post_gate_red", item: reparked.value });
-      }
 
-      const vcsDriver =
-        options.vcs ?? (options.noPush === true ? noPushVcsContinuation : defaultVcsContinuation);
-      const vcs = await vcsDriver.commitAndPush({
-        repoRoot,
-        lineageId: lineageId.value,
-        writes: artifact.value.writes,
-      });
-      if (!vcs.ok) {
-        const reparked = store.repark({ decisionId: item.value.decisionId });
-        if (!reparked.ok) {
-          return err({ kind: "queue_error", detail: JSON.stringify(reparked.error) });
+        const at = parseTimestamp(Date.now());
+        if (!at.ok) return err({ kind: "queue_error", detail: "invalid timestamp" });
+        const suffix = `${lineageId.value}-${at.value}`;
+        const gateRunId = GateRunId(`gate-resume-${suffix}-post`);
+        const transitionId = TransitionId(`tr-resume-${suffix}`);
+        if (!gateRunId.ok || !transitionId.ok) {
+          return err({ kind: "queue_error", detail: "invalid resume ids" });
         }
-        return ok({ kind: "reparked", reason: "merge_failed", item: reparked.value });
-      }
 
-      if (options.noPush === true) {
+        const postGate = await runPostGateInWorktree(
+          { worktreeRoot: continuationWorktree.value.root, config: artifact.value.gateConfig },
+          { gateRunId: gateRunId.value, lineageId: lineageId.value },
+        );
+        if (!gatePassed(postGate)) {
+          const reparked = store.repark({ decisionId: item.value.decisionId });
+          if (!reparked.ok) {
+            return err({ kind: "queue_error", detail: JSON.stringify(reparked.error) });
+          }
+          return ok({ kind: "reparked", reason: "post_gate_red", item: reparked.value });
+        }
+
+        if (options.noPush === true) {
+          const vcs = await (options.vcs ?? noPushVcsContinuation).commitAndPush({
+            repoRoot,
+            lineageId: lineageId.value,
+            writes: artifact.value.writes,
+          });
+          if (!vcs.ok) {
+            const reparked = store.repark({ decisionId: item.value.decisionId });
+            if (!reparked.ok) {
+              return err({ kind: "queue_error", detail: JSON.stringify(reparked.error) });
+            }
+            return ok({ kind: "reparked", reason: "merge_failed", item: reparked.value });
+          }
+          return ok({
+            kind: "validated_no_push",
+            postGate,
+            artifactHash: String(artifact.value.artifactHash),
+            vcs: vcs.value,
+          });
+        }
+
+        const appliedToRepo = applyWritesToWorktree(repoRoot, artifact.value.writes);
+        if (!appliedToRepo.ok) {
+          const reparked = store.repark({ decisionId: item.value.decisionId });
+          if (!reparked.ok) {
+            return err({ kind: "queue_error", detail: JSON.stringify(reparked.error) });
+          }
+          return ok({ kind: "reparked", reason: "merge_failed", item: reparked.value });
+        }
+
+        const vcs = await (options.vcs ?? defaultVcsContinuation).commitAndPush({
+          repoRoot,
+          lineageId: lineageId.value,
+          writes: artifact.value.writes,
+        });
+        if (!vcs.ok) {
+          const reparked = store.repark({ decisionId: item.value.decisionId });
+          if (!reparked.ok) {
+            return err({ kind: "queue_error", detail: JSON.stringify(reparked.error) });
+          }
+          return ok({ kind: "reparked", reason: "merge_failed", item: reparked.value });
+        }
+
+        const transition: StateTransition = {
+          transitionId: transitionId.value,
+          lineageId: lineageId.value,
+          from: { status: "approved_for_merge" },
+          to: { status: "merged" },
+          at: at.value,
+          basis: { gateRunId: gateRunId.value },
+        };
+
         return ok({
-          kind: "validated_no_push",
+          kind: "merged",
+          transition,
           postGate,
           artifactHash: String(artifact.value.artifactHash),
           vcs: vcs.value,
         });
+      } finally {
+        await continuationWorktree.value.remove();
       }
-
-      const transition: StateTransition = {
-        transitionId: transitionId.value,
-        lineageId: lineageId.value,
-        from: { status: "approved_for_merge" },
-        to: { status: "merged" },
-        at: at.value,
-        basis: { gateRunId: gateRunId.value },
-      };
-
-      return ok({
-        kind: "merged",
-        transition,
-        postGate,
-        artifactHash: String(artifact.value.artifactHash),
-        vcs: vcs.value,
-      });
     } finally {
       await locked.value.release();
     }

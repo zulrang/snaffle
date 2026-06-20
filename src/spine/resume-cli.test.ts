@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,6 +17,26 @@ const must = <T>(result: { ok: boolean; value?: T; error?: unknown }): T => {
   return result.value as T;
 };
 
+const initGitWorkspace = (workspace: string): void => {
+  const run = (args: readonly string[]) => {
+    const result = spawnSync("git", [...args], { cwd: workspace, encoding: "utf8" });
+    if (result.status !== 0) {
+      throw new Error(result.stderr || result.stdout || `git ${args.join(" ")} failed`);
+    }
+  };
+  run(["init"]);
+  run([
+    "-c",
+    "user.name=Snaffle Test",
+    "-c",
+    "user.email=snaffle@example.com",
+    "commit",
+    "--allow-empty",
+    "-m",
+    "init",
+  ]);
+};
+
 describe("resume approved lineage", () => {
   let workspace: string;
 
@@ -25,6 +46,7 @@ describe("resume approved lineage", () => {
 
   test("approval authorizes; resume reapplies parked artifact and derives merged", async () => {
     workspace = mkdtempSync(join(tmpdir(), "snaffle-resume-"));
+    initGitWorkspace(workspace);
     const ts = must(parseTimestamp(1_700_000_000_000));
     const lineageId = must(LineageId("lineage-resume"));
     const decisionId = must(DecisionId("dec-resume"));
@@ -88,6 +110,7 @@ describe("resume approved lineage", () => {
 
   test("no-push resume validates without deriving merged", async () => {
     workspace = mkdtempSync(join(tmpdir(), "snaffle-resume-no-push-"));
+    initGitWorkspace(workspace);
     const ts = must(parseTimestamp(1_700_000_000_000));
     const lineageId = must(LineageId("lineage-no-push"));
     const decisionId = must(DecisionId("dec-no-push"));
@@ -142,11 +165,12 @@ describe("resume approved lineage", () => {
       kind: "would_commit_and_push",
       paths: ["preview.txt"],
     });
-    expect(readFileSync(join(workspace, "preview.txt"), "utf8")).toBe("preview\n");
+    expect(existsSync(join(workspace, "preview.txt"))).toBe(false);
   });
 
   test("missing artifact re-parks instead of honoring a stale approval", async () => {
     workspace = mkdtempSync(join(tmpdir(), "snaffle-resume-missing-"));
+    initGitWorkspace(workspace);
     const ts = must(parseTimestamp(1_700_000_000_000));
     const lineageId = must(LineageId("lineage-stale"));
     const decisionId = must(DecisionId("dec-stale"));

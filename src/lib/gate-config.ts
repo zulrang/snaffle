@@ -162,7 +162,7 @@ interface GateTomlConfig {
   readonly contract_paths?: unknown;
 }
 
-const parseGateToml = (raw: string): Result<ProjectGateConfig, GateConfigError> => {
+export const parseGateToml = (raw: string): Result<ProjectGateConfig, GateConfigError> => {
   let parsed: GateTomlConfig;
   try {
     parsed = TOML.parse(raw) as GateTomlConfig;
